@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>chan_code · AI coding agent</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand">
+          <span class="logo">λ</span>
+          <div class="brand-text">
+            <strong>chan_code</strong>
+            <small>AI coding agent</small>
+          </div>
+        </div>
+        <button id="new-session" class="btn primary block">New session</button>
+        <div class="sidebar-label">Sessions</div>
+        <div class="session-list" id="session-list"></div>
+        <div class="sidebar-footer">
+          <a href="/about" target="_blank" rel="noreferrer">About chan_code</a>
+          <button id="theme-toggle" class="link-btn">Switch theme</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <button id="menu" class="icon-btn" title="Toggle sidebar">☰</button>
+          <div class="title-block">
+            <h1 id="session-title">chan_code</h1>
+            <div class="meta" id="session-meta">select a provider and start coding</div>
+          </div>
+          <div class="controls">
+            <select id="provider-select" title="Provider"></select>
+            <input id="model-input" title="Model" placeholder="model" spellcheck="false" />
+            <select id="approval-select" title="Approval mode">
+              <option value="auto">auto approve</option>
+              <option value="ask">ask before bash</option>
+              <option value="deny">no bash</option>
+            </select>
+            <button id="settings-btn" class="icon-btn" title="Settings">Settings</button>
+          </div>
+        </header>
+
+        <section class="messages" id="messages">
+          <div class="empty" id="empty-state">
+            <div class="empty-logo">λ</div>
+            <h2>chan_code</h2>
+            <p>
+              An open-source coding agent for your terminal and browser. Read, search, edit and run code with any
+              OpenAI-compatible or Anthropic model. Attach images and files right here.
+            </p>
+            <div class="suggestions">
+              <button class="suggestion">Explain this codebase and how to run it</button>
+              <button class="suggestion">Find and fix the bug in the failing tests</button>
+              <button class="suggestion">Add a feature with tests, then run the suite</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="composer">
+          <div class="attachments" id="attachments"></div>
+          <div class="composer-row">
+            <textarea id="input" rows="1" placeholder="Ask chan_code to build, debug, explain…"></textarea>
+            <div class="composer-actions">
+              <button id="attach-image" class="icon-btn" title="Attach image">Image</button>
+              <input type="file" id="image-input" accept="image/*" multiple hidden />
+              <button id="attach-file" class="icon-btn" title="Attach file">File</button>
+              <input type="file" id="file-input" multiple hidden />
+              <button id="send" class="btn primary">Send</button>
+              <button id="stop" class="btn danger" hidden>Stop</button>
+            </div>
+          </div>
+          <div class="composer-hint">
+            Enter to send · Shift+Enter newline · Images use vision models · Files are uploaded to .chan/uploads
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="settings" class="dialog">
+      <form method="dialog" class="dialog-body" id="settings-form">
+        <h2>Settings</h2>
+        <div class="grid2">
+          <label>
+            Default provider
+            <select id="set-default-provider"></select>
+          </label>
+          <label>
+            Approval mode
+            <select id="set-approval">
+              <option value="auto">auto</option>
+              <option value="ask">ask</option>
+              <option value="deny">deny</option>
+            </select>
+          </label>
+        </div>
+        <div class="grid2">
+          <label>
+            Max steps per turn
+            <input id="set-max-steps" type="number" min="1" max="200" />
+          </label>
+          <label>
+            Workspace directory for new sessions
+            <input id="set-cwd" placeholder="defaults to the server working directory" spellcheck="false" />
+          </label>
+        </div>
+        <label>
+          Custom system prompt (optional)
+          <textarea id="set-system" rows="3" placeholder="Extra instructions appended to the system prompt"></textarea>
+        </label>
+
+        <h3>Edit provider</h3>
+        <div class="grid2">
+          <label>
+            Provider
+            <select id="set-provider-name"></select>
+          </label>
+          <label>
+            Model
+            <input id="set-model" spellcheck="false" />
+          </label>
+        </div>
+        <div class="grid2">
+          <label>
+            Base URL
+            <input id="set-base-url" spellcheck="false" />
+          </label>
+          <label>
+            API key
+            <input id="set-api-key" type="password" placeholder="leave blank to keep current key" spellcheck="false" />
+          </label>
+        </div>
+        <div class="grid2">
+          <label>
+            Server token (protects the web UI)
+            <input id="set-token" type="password" placeholder="empty = local only" spellcheck="false" />
+          </label>
+          <label>
+            Provider status
+            <div id="provider-status" class="provider-status">—</div>
+          </label>
+        </div>
+
+        <div class="dialog-actions">
+          <span id="settings-status" class="status-line"></span>
+          <button type="button" class="btn" id="settings-cancel">Cancel</button>
+          <button type="button" class="btn primary" id="settings-save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>

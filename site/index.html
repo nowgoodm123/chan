@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>chan_code — open-source AI coding agent for terminal and browser</title>
+    <meta
+      name="description"
+      content="chan_code is an open-source AI coding agent. Run it in your terminal, or open the browser UI to chat, upload images and files, and watch it read, edit and run your code."
+    />
+    <style>
+      :root {
+        --bg: #070a11;
+        --bg-soft: #0d1220;
+        --panel: #111827;
+        --border: #1f2937;
+        --border-strong: #2f3b52;
+        --text: #e7ecf7;
+        --muted: #94a3b8;
+        --accent: #7c9cff;
+        --accent-2: #a06bff;
+        --green: #4ade80;
+        --amber: #fbbf24;
+        --mono: "Cascadia Code", "JetBrains Mono", ui-monospace, Consolas, Menlo, monospace;
+        --sans: "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(1000px 600px at 80% -10%, rgba(160, 107, 255, 0.18), transparent 60%),
+          radial-gradient(900px 500px at 0% 0%, rgba(124, 156, 255, 0.16), transparent 55%),
+          var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        line-height: 1.65;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 0 22px;
+      }
+      header.nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 0;
+        position: sticky;
+        top: 0;
+        backdrop-filter: blur(12px);
+        background: rgba(7, 10, 17, 0.7);
+        border-bottom: 1px solid rgba(31, 41, 55, 0.6);
+        z-index: 10;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 17px;
+      }
+      .logo {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        color: #fff;
+        font-size: 20px;
+      }
+      nav.links {
+        display: flex;
+        gap: 20px;
+        font-size: 14px;
+      }
+      nav.links a {
+        color: var(--muted);
+      }
+      nav.links a:hover {
+        color: var(--text);
+        text-decoration: none;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        gap: 44px;
+        align-items: center;
+        padding: 76px 0 60px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12.5px;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        background: var(--bg-soft);
+        border-radius: 999px;
+        padding: 5px 12px;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 12px var(--green);
+      }
+      h1 {
+        font-size: clamp(36px, 5vw, 56px);
+        line-height: 1.08;
+        margin: 18px 0 16px;
+        letter-spacing: -0.02em;
+      }
+      h1 .grad {
+        background: linear-gradient(100deg, var(--accent), var(--accent-2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .lede {
+        color: var(--muted);
+        font-size: 17px;
+        max-width: 540px;
+      }
+      .lede strong {
+        color: var(--text);
+      }
+      .cta {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 26px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 10px;
+        padding: 11px 18px;
+        border: 1px solid var(--border-strong);
+        background: var(--panel);
+        color: var(--text);
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .btn:hover {
+        text-decoration: none;
+        border-color: var(--accent);
+      }
+      .btn.primary {
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        border-color: transparent;
+        color: #fff;
+      }
+      .terminal {
+        border: 1px solid var(--border-strong);
+        border-radius: 14px;
+        background: #080c15;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+      .terminal-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        background: #0b111c;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .terminal-bar i {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #334155;
+        display: inline-block;
+      }
+      .terminal-bar i:nth-child(1) {
+        background: #f87171;
+      }
+      .terminal-bar i:nth-child(2) {
+        background: #fbbf24;
+      }
+      .terminal-bar i:nth-child(3) {
+        background: #4ade80;
+      }
+      .terminal-body {
+        padding: 16px;
+        min-height: 300px;
+        line-height: 1.7;
+        white-space: pre-wrap;
+      }
+      .c-dim {
+        color: #64748b;
+      }
+      .c-accent {
+        color: var(--accent);
+      }
+      .c-green {
+        color: var(--green);
+      }
+      .c-amber {
+        color: var(--amber);
+      }
+      .c-purple {
+        color: #c084fc;
+      }
+      section {
+        padding: 58px 0;
+        border-top: 1px solid rgba(31, 41, 55, 0.55);
+      }
+      h2 {
+        font-size: 28px;
+        margin: 0 0 8px;
+        letter-spacing: -0.01em;
+      }
+      .sub {
+        color: var(--muted);
+        margin: 0 0 30px;
+        max-width: 620px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+      .card {
+        background: linear-gradient(180deg, rgba(17, 24, 39, 0.85), rgba(13, 18, 32, 0.85));
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+      }
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 15.5px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13.6px;
+      }
+      .card .ico {
+        font-family: var(--mono);
+        color: var(--accent);
+        font-size: 12px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        display: block;
+        margin-bottom: 12px;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+      }
+      .tab {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 12px;
+        background: var(--bg-soft);
+        cursor: pointer;
+      }
+      .tab.active {
+        color: var(--text);
+        border-color: var(--accent);
+        background: rgba(124, 156, 255, 0.12);
+      }
+      pre.code {
+        background: #080c15;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        overflow-x: auto;
+        font-family: var(--mono);
+        font-size: 13px;
+        color: #cfe0ff;
+        margin: 0;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 26px;
+      }
+      .list {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--muted);
+      }
+      .list li {
+        margin-bottom: 8px;
+      }
+      .list strong {
+        color: var(--text);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13.5px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 500;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      td code {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: #cfe0ff;
+      }
+      .badges {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .badges span {
+        border: 1px solid var(--border);
+        background: var(--bg-soft);
+        padding: 4px 10px;
+        border-radius: 999px;
+      }
+      footer {
+        border-top: 1px solid var(--border);
+        padding: 30px 0 46px;
+        color: var(--muted);
+        font-size: 13px;
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+      }
+      @media (max-width: 860px) {
+        .hero {
+          grid-template-columns: 1fr;
+          padding-top: 48px;
+        }
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .split {
+          grid-template-columns: 1fr;
+        }
+        nav.links {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="nav">
+        <div class="brand"><span class="logo">λ</span> chan_code</div>
+        <nav class="links">
+          <a href="#features">Features</a>
+          <a href="#install">Install</a>
+          <a href="#web">Browser UI</a>
+          <a href="#models">Models</a>
+          <a href="https://github.com/nowgoodm123/chan_code">GitHub</a>
+        </nav>
+      </header>
+
+      <main>
+        <div class="hero">
+          <div>
+            <span class="pill"><span class="dot"></span> open source · zero dependencies · Windows, macOS, Linux</span>
+            <h1>Your codebase,<br /><span class="grad">handled by an agent.</span></h1>
+            <p class="lede">
+              <strong>chan_code</strong> is an AI coding agent that lives in your terminal <em>and</em> your browser. It
+              reads and edits files, searches your project, runs commands, runs tests, and streams its reasoning — with
+              any OpenAI-compatible or Anthropic model.
+            </p>
+            <div class="cta">
+              <a class="btn primary" href="#install">Install in one command</a>
+              <a class="btn" href="#web">Open the browser UI</a>
+            </div>
+            <div class="badges">
+              <span>Node.js ≥ 18</span>
+              <span>no runtime dependencies</span>
+              <span>MIT licensed</span>
+              <span>image &amp; file uploads</span>
+            </div>
+          </div>
+
+          <div class="terminal" aria-hidden="true">
+            <div class="terminal-bar"><i></i><i></i><i></i> chan_code — powershell</div>
+            <div class="terminal-body"><span class="c-dim">PS D:\work\app&gt;</span> <span class="c-accent">chan</span>
+
+<span class="c-dim">╭──────────────────────────────────────────────────────────────╮
+│ chan_code v0.1.0 · open-source AI coding agent               │
+│ provider: deepseek   model: deepseek-chat                    │
+│ workspace: D:\work\app   approval: auto                      │
+╰──────────────────────────────────────────────────────────────╯</span>
+
+<span class="c-accent">chan&gt;</span> add retry logic to the upload endpoint
+<span class="c-purple">●</span> <span class="c-amber">read</span> <span class="c-dim">path: src/routes/upload.ts</span>
+<span class="c-green">✓</span> <span class="c-dim">72 lines</span>
+<span class="c-purple">●</span> <span class="c-amber">grep</span> <span class="c-dim">pattern: upload</span>
+<span class="c-green">✓</span> <span class="c-dim">4 matches</span>
+<span class="c-purple">●</span> <span class="c-amber">edit</span> <span class="c-dim">path: src/routes/upload.ts</span>
+<span class="c-green">✓</span> <span class="c-dim">2 replacements</span>
+<span class="c-purple">●</span> <span class="c-amber">bash</span> <span class="c-dim">command: npm test</span>
+<span class="c-green">✓</span> <span class="c-dim">exit 0 · 18 passing</span>
+
+Added bounded exponential retries with jitter and covered the
+failure path in <span class="c-amber">src/routes/upload.test.ts</span>. All tests pass.</div>
+          </div>
+        </div>
+
+        <section id="features">
+          <h2>Two ways to work, one agent</h2>
+          <p class="sub">The same engine drives the interactive terminal chat and the browser app. Switch whenever you want.</p>
+          <div class="grid">
+            <div class="card">
+              <span class="ico">terminal</span>
+              <h3>Interactive CLI</h3>
+              <p>Streaming chat, tool output, approval prompts, slash commands, sessions you can resume later. Works over SSH.</p>
+            </div>
+            <div class="card">
+              <span class="ico">browser</span>
+              <h3>Local web UI</h3>
+              <p>Chat from a polished UI on <code>127.0.0.1:4731</code>. Attach images for vision models, upload files, approve risky commands, edit providers.</p>
+            </div>
+            <div class="card">
+              <span class="ico">tools</span>
+              <h3>Real coding tools</h3>
+              <p>read, write, edit, list, glob, grep, bash, webfetch and a todo list. Path-safety checks and dangerous-command guards built in.</p>
+            </div>
+            <div class="card">
+              <span class="ico">models</span>
+              <h3>Any model, one config</h3>
+              <p>DeepSeek, OpenAI, Anthropic, OpenRouter, Groq, Qwen, Moonshot, GLM, Ollama, LM Studio, vLLM — plus any compatible endpoint.</p>
+            </div>
+            <div class="card">
+              <span class="ico">sessions</span>
+              <h3>Persistent sessions</h3>
+              <p>Conversations, todos and token usage are saved per workspace. Resume from the CLI or the browser.</p>
+            </div>
+            <div class="card">
+              <span class="ico">safe</span>
+              <h3>You stay in control</h3>
+              <p>Approval modes: auto, ask before risky commands, or deny shell access. Token-protected web server, local-only by default.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="install">
+          <h2>Install</h2>
+          <p class="sub">chan_code needs Node.js 18.17 or newer. There are no npm dependencies to download.</p>
+          <div class="tabs" id="tabs">
+            <button class="tab active" data-target="win">Windows</button>
+            <button class="tab" data-target="mac">macOS</button>
+            <button class="tab" data-target="linux">Linux</button>
+            <button class="tab" data-target="npm">From source</button>
+          </div>
+          <pre class="code" id="code-win"># PowerShell
+git clone https://github.com/nowgoodm123/chan_code.git
+cd chan_code
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
+
+# or link it yourself
+npm link
+chan init --provider deepseek
+$env:DEEPSEEK_API_KEY = "sk-..."
+chan serve --open</pre>
+          <pre class="code" id="code-mac" hidden># macOS
+git clone https://github.com/nowgoodm123/chan_code.git
+cd chan_code
+bash ./scripts/install.sh
+chan init --provider deepseek
+export DEEPSEEK_API_KEY="sk-..."
+chan serve --open</pre>
+          <pre class="code" id="code-linux" hidden># Linux
+git clone https://github.com/nowgoodm123/chan_code.git
+cd chan_code
+bash ./scripts/install.sh
+chan init --provider deepseek
+export DEEPSEEK_API_KEY="sk-..."
+chan serve --open</pre>
+          <pre class="code" id="code-npm" hidden># from a checkout (not yet published to npm)
+npm install -g .
+chan --version
+chan --help
+
+# or run it directly
+node bin/chan.js run "summarize this repo"</pre>
+        </section>
+
+        <section id="web">
+          <h2>The browser UI is part of the product</h2>
+          <p class="sub">Run <code>chan serve</code> and open the URL. Use the terminal when you want, the browser when you need to look at things.</p>
+          <div class="split">
+            <div>
+              <ul class="list">
+                <li><strong>Drop in screenshots</strong> of errors, designs, or dashboards — vision models can read them.</li>
+                <li><strong>Upload files</strong> to <code>.chan/uploads</code> and mention the path; the agent can read them.</li>
+                <li><strong>Watch every tool call</strong> as a collapsible card with timing and output.</li>
+                <li><strong>Approve dangerous commands</strong> straight from the chat.</li>
+                <li><strong>Manage providers</strong> — base URL, model and API key — without editing JSON.</li>
+                <li><strong>Remote access safely</strong> with <code>--host 0.0.0.0 --token &lt;secret&gt;</code>.</li>
+              </ul>
+            </div>
+            <pre class="code">chan serve --open
+
+chan_code web server
+  app:     http://127.0.0.1:4731
+  landing: http://127.0.0.1:4731/about
+  workspace: D:\work\app
+  press Ctrl+C to stop
+
+# LAN access with a token
+chan serve --host 0.0.0.0 --token s3cret
+# then open http://192.168.1.20:4731/?token=s3cret</pre>
+          </div>
+        </section>
+
+        <section id="models">
+          <h2>Bring your own model</h2>
+          <p class="sub">Two wire protocols are supported: OpenAI-compatible chat completions and Anthropic messages. Tool calling and streaming work on both.</p>
+          <table>
+            <thead>
+              <tr><th>Provider</th><th>Preset model</th><th>Notes</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>DeepSeek</td><td><code>deepseek-chat</code></td><td>Excellent coding value, OpenAI-compatible</td></tr>
+              <tr><td>OpenAI</td><td><code>gpt-4o-mini</code></td><td>Change the model in config</td></tr>
+              <tr><td>Anthropic</td><td><code>claude-3-7-sonnet-latest</code></td><td>Native messages API with tools and vision</td></tr>
+              <tr><td>OpenRouter / Groq</td><td>varies</td><td>One key, many models</td></tr>
+              <tr><td>Qwen / Moonshot / GLM</td><td>varies</td><td>OpenAI-compatible regional endpoints</td></tr>
+              <tr><td>Ollama / LM Studio / vLLM</td><td>local model</td><td>Runs fully offline, no API key</td></tr>
+            </tbody>
+          </table>
+          <pre class="code" style="margin-top: 18px">chan config set providers.deepseek.apiKey=sk-...
+chan config set providers.ollama.model=qwen2.5-coder:7b
+chan models --presets
+chan models</pre>
+        </section>
+
+        <section>
+          <h2>Built to be inspected</h2>
+          <p class="sub">Zero runtime dependencies, plain Node.js ESM, a test suite you can run offline.</p>
+          <div class="split">
+            <pre class="code">src/
+  agent.js              agent loop, tool results, loop detection
+  config.js             config merge, presets, secrets
+  providers/            openai.js · anthropic.js
+  tools/                read write edit bash glob grep ...
+  server/               HTTP + SSE API and web UI
+  cli/                  REPL, one-shot runs, commands
+test/                   node:test suites (no network needed)</pre>
+            <pre class="code">npm test
+
+▶ config ............ 10 passing
+▶ tools ............. 11 passing
+▶ providers ......... 7 passing
+▶ agent ............. 7 passing
+▶ sessions .......... 5 passing
+▶ server ............ 11 passing</pre>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div>
+          <strong>chan_code</strong> · MIT license · built for developers who want an agent they can read.
+        </div>
+        <div><a href="https://github.com/nowgoodm123/chan_code">GitHub</a> · <a href="/about#install">Install</a> · <a href="https://github.com/nowgoodm123/chan_code/tree/main/docs">Docs</a></div>
+      </footer>
+    </div>
+
+    <script>
+      const tabs = document.querySelectorAll('.tab');
+      tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+          tabs.forEach((other) => other.classList.remove('active'));
+          tab.classList.add('active');
+          document.querySelectorAll('[id^="code-"]').forEach((block) => {
+            block.hidden = block.id !== `code-${tab.dataset.target}`;
+          });
+        });
+      });
+    </script>
+  </body>
+</html>

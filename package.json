@@ -1,0 +1,63 @@
+{
+  "name": "chan-code",
+  "version": "0.1.0",
+  "description": "chan_code - an open-source AI coding agent for the terminal and the browser. Zero dependencies.",
+  "keywords": [
+    "ai",
+    "agent",
+    "coding-agent",
+    "cli",
+    "tui",
+    "llm",
+    "openai",
+    "anthropic",
+    "deepseek",
+    "ollama"
+  ],
+  "license": "MIT",
+  "author": "chan_code contributors",
+  "type": "module",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "bin": {
+    "chan": "bin/chan.js",
+    "chan-code": "bin/chan.js"
+  },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./agent": "./src/agent.js",
+    "./tools": "./src/tools/index.js",
+    "./config": "./src/config.js",
+    "./server": "./src/server/server.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "docs",
+    "site",
+    "scripts",
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node bin/chan.js",
+    "chat": "node bin/chan.js",
+    "web": "node bin/chan.js serve",
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "lint": "node scripts/lint.js",
+    "site": "node scripts/serve-site.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nowgoodm123/chan_code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nowgoodm123/chan_code/issues"
+  },
+  "homepage": "https://github.com/nowgoodm123/chan_code#readme"
+}
