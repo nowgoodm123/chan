@@ -21,7 +21,7 @@
 | 安全 | 工作区路径约束、危险命令识别、`auto/ask/deny` 审批模式、Web 服务 Token、默认仅本机监听 |
 | 会话 | 按工作区保存到 `~/.chan_code/sessions`，可 `chan --resume <id>` 恢复 |
 | 跨平台 | Windows（PowerShell）、macOS、Linux；纯 Node.js ESM，无第三方依赖 |
-| 可测试 | 51 个离线测试，覆盖配置、工具、Provider、Agent、会话、HTTP/SSE 服务 |
+| 可测试 | 54 个离线测试，覆盖配置、工具、Provider、Agent、会话、命令面板、HTTP/SSE 服务 |
 | 文档 | 完整使用、配置、工具、架构、API、测试文档 + 介绍网站 |
 
 ---
@@ -102,7 +102,12 @@ chan> 修复上传接口没有重试的问题，并补测试
 ...
 ```
 
-斜杠命令：`/help` `/model` `/provider` `/approval` `/attach` `/tools` `/sessions` `/resume` `/web` `/config` `/clear` `/exit`。
+斜杠命令：在空提示符输入 `/` 会自动弹出命令面板；按 `Tab` 补全命令、子命令与 Provider 名。
+
+- `/session` — 会话管理：`list` / `new` / `resume <id>` / `delete <id>` / `rename <title>` / `show [id]`
+- `/connect` — 交互式连接模型：选择 Provider，填写 Base URL、模型、API Key，并写入配置
+- `/model` `/provider` `/approval` — 切换模型、Provider 或审批模式
+- `/attach` `/detach` `/tools` `/web` `/cwd` `/config` `/help` `/exit` — 其他快捷操作
 
 ### 2. 一次性任务
 
@@ -215,7 +220,7 @@ scripts/                  install.ps1 / install.sh / lint.js
 ## 测试与质量
 
 ```bash
-npm test        # 51 个测试，无需网络与 API Key
+npm test        # 54 个测试，无需网络与 API Key
 npm run lint    # 语法检查 + 入口与文档完整性检查
 ```
 

@@ -16,6 +16,8 @@ All notable changes to chan_code are documented here.
 - Browser UI with image/file upload, tool cards, approval buttons, provider settings, session sidebar.
 - Token-protected server, localhost-only by default.
 - Installers for Windows (PowerShell), macOS and Linux (bash).
-- Offline test suite (51 tests) using `node:test`.
+- Interactive slash command palette: type `/` in the REPL to list commands, with Tab completion for commands, subcommands, providers and image paths.
+- `/session` management (list/new/resume/delete/rename/show) and `/connect` wizard for providers (type, base URL, model, API key).
+- Offline test suite (54 tests) using `node:test`.
 - Landing site (`site/index.html`) and full documentation in `docs/`.
 - Provider presets: DeepSeek, OpenAI, Anthropic, OpenRouter, Groq, Moonshot, Qwen, Zhipu, Ollama, LM Studio, vLLM.

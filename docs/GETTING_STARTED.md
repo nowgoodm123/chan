@@ -94,6 +94,28 @@ chan
 解释这个项目的目录结构，并告诉我如何运行测试
 ```
 
+### 终端快捷命令
+
+在空提示符直接输入 `/` 会弹出命令面板，按 `Tab` 可补全命令、子命令、Provider 名和图片路径：
+
+- `/session list|new|resume <id>|delete <id>|rename <title>|show [id]` — 会话管理
+- `/connect [provider]` — 交互式连接模型：类型、Base URL、模型、API Key，保存后立即生效
+- `/model`、`/provider`、`/approval` — 快速切换模型 / Provider / 审批模式
+- `/attach <image>`、`/detach`、`/tools`、`/web [open|stop]`、`/config`、`/help`、`/exit`
+
+连接示例：
+
+```text
+chan> /connect mock
+type [openai|anthropic] (openai): openai
+Base URL (required): http://127.0.0.1:4999/v1
+Model (required): local-model
+API key (blank for local or keyless endpoints): ****
+connected: mock · local-model
+  http://127.0.0.1:4999/v1 · key configured
+  saved to C:\Users\<you>\.chan_code\config.json
+```
+
 ### 一次性任务
 
 ```bash

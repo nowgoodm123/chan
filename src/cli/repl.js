@@ -3,12 +3,13 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { buildSystemPrompt } from '../agent.js';
-import { getProviderConfig, loadConfig, redactConfig } from '../config.js';
+import { CONFIG_PATH, getProviderConfig, PROVIDER_PRESETS, redactConfig, resolveSecret, saveConfig } from '../config.js';
 import { createProvider } from '../providers/index.js';
 import { startServer, openBrowser, SITE_DIR } from '../server/server.js';
 import { SessionStore } from '../sessions.js';
 import { createTools, describeTools } from '../tools/index.js';
 import { version } from '../version.js';
+import { renderSlashMenu, slashCompletions, SLASH_COMMANDS } from './palette.js';
 import { runTurn } from './runner.js';
 
 const MIME_BY_EXT = {
@@ -20,23 +21,7 @@ const MIME_BY_EXT = {
   '.bmp': 'image/bmp',
 };
 
-const COMMAND_HELP = [
-  ['/help', 'show this help'],
-  ['/exit, /quit', 'leave the chat'],
-  ['/new, /clear', 'start a fresh session'],
-  ['/model [name]', 'show or change the model'],
-  ['/provider [name]', 'show or switch the provider'],
-  ['/approval [mode]', 'auto | ask | deny bash approvals'],
-  ['/attach <path>', 'attach an image to the next message'],
-  ['/detach', 'clear pending attachments'],
-  ['/tools', 'list available tools'],
-  ['/sessions', 'list saved sessions for this workspace'],
-  ['/resume <id>', 'load a saved session'],
-  ['/web [stop]', 'start/stop the browser UI from here'],
-  ['/cwd', 'print the workspace directory'],
-  ['/config', 'show the effective config (secrets redacted)'],
-  ['/about', 'open the landing page'],
-];
+const IMAGE_EXTENSIONS = new Set(Object.keys(MIME_BY_EXT));
 
 function loadImageAttachment(cwd, file) {
   const absolute = path.isAbsolute(file) ? file : path.resolve(cwd, file);
@@ -110,13 +95,40 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     }
   });
 
+  rl.completer = (line) => {
+    let files = [];
+    try {
+      files = fs
+        .readdirSync(cwd, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
+        .map((entry) => entry.name);
+    } catch {
+      files = [];
+    }
+    return slashCompletions(line, { providers: Object.keys(config.providers || {}), files });
+  };
+
   function readLine(promptText = '') {
-    if (promptText) process.stdout.write(promptText);
+    if (promptText && process.stdin.isTTY) process.stdout.write(promptText);
     if (buffered.length) return Promise.resolve(buffered.shift());
     if (closed) return Promise.resolve(null);
     return new Promise((resolve) => {
       waiting = resolve;
     });
+  }
+
+  async function readSecret(promptText) {
+    if (!process.stdin.isTTY || typeof rl._writeToOutput !== 'function') return readLine(promptText);
+    const original = rl._writeToOutput;
+    rl._writeToOutput = function masked(chunk) {
+      if (String(chunk).includes('\n') || String(chunk).includes('\r')) return original.call(rl, chunk);
+      return undefined;
+    };
+    try {
+      return (await readLine(promptText)) || '';
+    } finally {
+      rl._writeToOutput = original;
+    }
   }
 
   const prompt = () => ui.cyan('chan> ');
@@ -150,6 +162,159 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     const target = request.command ? `\`${request.command}\`` : request.tool;
     const answer = await readLine(ui.yellow(`approve ${target}${request.danger ? ` (${request.danger})` : ''}? [y/N] `));
     return { approved: /^y(es)?$/i.test(String(answer || '').trim()) };
+  }
+
+  function newSession() {
+    session = store.create({
+      cwd,
+      provider: config.defaultProvider,
+      model: provider?.model || null,
+      approval: config.agent.approval,
+    });
+    history.length = 0;
+    pendingImages = [];
+    ui.info(`new session ${session.id}`);
+  }
+
+  function resumeSession(id) {
+    const loaded = id ? store.get(id) : null;
+    if (!loaded) {
+      ui.error(id ? `session not found: ${id}` : 'usage: /session resume <id>');
+      return;
+    }
+    session = loaded;
+    config.defaultProvider = session.provider || config.defaultProvider;
+    if (session.model) {
+      config.providers[config.defaultProvider] = {
+        ...(config.providers[config.defaultProvider] || {}),
+        model: session.model,
+      };
+    }
+    provider = safeProvider(config);
+    ui.info(`resumed ${session.id} · ${session.messages.length} messages`);
+    ui.info('history is in context; type a new message to continue');
+  }
+
+  function listSessions() {
+    const sessions = store.list();
+    if (!sessions.length) {
+      ui.info('no saved sessions yet');
+      return;
+    }
+    for (const item of sessions) {
+      const marker = item.id === session.id ? ui.green('*') : ' ';
+      ui.line(` ${marker} ${ui.cyan(item.id)}  ${String(item.title || 'New session').slice(0, 48).padEnd(48)}  ${ui.dim(item.updatedAt)}`);
+    }
+  }
+
+  function showSessionInfo(id) {
+    const data = id ? store.get(id) : session;
+    if (!data) {
+      ui.error(`session not found: ${id}`);
+      return;
+    }
+    ui.line(ui.bold(`session ${data.id}${data.id === session.id ? ' (current)' : ''}`));
+    ui.line(`  title:    ${data.title || 'New session'}`);
+    ui.line(`  provider: ${data.provider || config.defaultProvider} · ${data.model || '(unset)'}`);
+    ui.line(`  cwd:      ${data.cwd || cwd}`);
+    ui.line(`  messages: ${data.messages?.length || 0}`);
+    ui.line(`  todos:    ${data.todos?.length || 0}`);
+    ui.line(`  updated:  ${data.updatedAt}`);
+    const usage = data.usage || {};
+    ui.line(`  tokens:   in ${usage.inputTokens || 0} · out ${usage.outputTokens || 0} · total ${usage.totalTokens || 0}`);
+  }
+
+  function deleteSession(id) {
+    if (!id) {
+      ui.error('usage: /session delete <id>');
+      return;
+    }
+    if (!store.list().some((item) => item.id === id)) {
+      ui.error(`session not found: ${id}`);
+      return;
+    }
+    store.delete(id);
+    ui.info(`deleted session ${id}`);
+    if (session.id === id) newSession();
+  }
+
+  async function connectProvider(input) {
+    const known = [...new Set([...Object.keys(PROVIDER_PRESETS), ...Object.keys(config.providers || {})])];
+    let name = input.trim();
+    if (!name) {
+      ui.line(ui.bold('Connect a model provider'));
+      known.forEach((item, index) => {
+        const providerConfig = config.providers?.[item] || {};
+        const preset = PROVIDER_PRESETS[item] || {};
+        ui.line(`  ${String(index + 1).padStart(2)}. ${item.padEnd(12)} ${ui.dim(providerConfig.baseUrl || preset.baseUrl || '')}`);
+      });
+      const answer = ((await readLine(ui.cyan('provider name or number (blank cancels): '))) || '').trim();
+      if (!answer) return;
+      name = /^\d+$/.test(answer) ? known[Number(answer) - 1] : answer;
+      if (!name) {
+        ui.error('invalid selection');
+        return;
+      }
+    }
+
+    if (/^\d+$/.test(name)) name = known[Number(name) - 1] || name;
+    const preset = PROVIDER_PRESETS[name] || {};
+    const existing = config.providers?.[name] || {};
+    let type = existing.type || preset.type || 'openai';
+    if (!preset.type) {
+      const answer = ((await readLine(`type [openai|anthropic] (${type}): `)) || '').trim();
+      if (answer) type = answer;
+    }
+    if (!['openai', 'anthropic'].includes(type)) {
+      ui.error('type must be openai or anthropic');
+      return;
+    }
+
+    const baseDefault = existing.baseUrl || preset.baseUrl || '';
+    const modelDefault = existing.model || preset.model || '';
+    const baseUrl = ((await readLine(`Base URL (${baseDefault || 'required'}): `)) || '').trim() || baseDefault;
+    const model = ((await readLine(`Model (${modelDefault || 'required'}): `)) || '').trim() || modelDefault;
+    if (!baseUrl || !model) {
+      ui.error('base URL and model are required');
+      return;
+    }
+
+    const apiKeyEnv = existing.apiKeyEnv || preset.apiKeyEnv;
+    const envKey = apiKeyEnv ? process.env[apiKeyEnv] : '';
+    const existingKey = resolveSecret(existing.apiKey, process.env);
+    let enteredKey = '';
+    if (envKey) {
+      ui.info(`using ${apiKeyEnv} from the environment`);
+    } else {
+      const hint = existingKey ? 'leave blank to keep the current key' : 'blank for local or keyless endpoints';
+      enteredKey = (await readSecret(`API key (${hint}): `)).trim();
+    }
+
+    const updated = { ...existing, type, baseUrl, model };
+    if (enteredKey) updated.apiKey = enteredKey;
+    else if (!existing.apiKey && apiKeyEnv) updated.apiKey = `env:${apiKeyEnv}`;
+    config.providers[name] = updated;
+    config.defaultProvider = name;
+    saveConfig(config);
+
+    session.provider = name;
+    session.model = model;
+    provider = safeProvider(config);
+    store.save(session);
+    if (provider) {
+      let resolved = null;
+      try {
+        resolved = getProviderConfig(config, name);
+      } catch {
+        resolved = null;
+      }
+      const keyState = resolved?.apiKey ? 'configured' : 'not set';
+      ui.line(ui.green(`connected: ${name} · ${model}`));
+      ui.line(ui.dim(`  ${baseUrl} · key ${keyState}`));
+      ui.line(ui.dim(`  saved to ${CONFIG_PATH}`));
+    } else {
+      ui.warn(providerError || 'provider could not be created');
+    }
   }
 
   async function turn(text) {
@@ -206,7 +371,7 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     switch (command) {
       case 'help':
         ui.line(ui.bold('Commands'));
-        for (const [name, description] of COMMAND_HELP) ui.line(`  ${ui.cyan(name.padEnd(18))} ${description}`);
+        ui.line(renderSlashMenu({ all: true }));
         ui.line(ui.dim('Everything else is sent to the agent. Ctrl+C stops a running turn.'));
         return false;
       case 'exit':
@@ -214,18 +379,9 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
       case 'q':
         return true;
       case 'new':
-      case 'clear': {
-        session = store.create({
-          cwd,
-          provider: config.defaultProvider,
-          model: provider?.model || null,
-          approval: config.agent.approval,
-        });
-        history.length = 0;
-        pendingImages = [];
-        ui.info(`new session ${session.id}`);
+      case 'clear':
+        newSession();
         return false;
-      }
       case 'model': {
         if (!arg) {
           ui.line(`model: ${provider?.model || session.model || '(unset)'}`);
@@ -289,28 +445,38 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
       case 'tools':
         for (const tool of describeTools()) ui.line(`  ${ui.cyan(tool.name.padEnd(12))} ${ui.dim(tool.description.slice(0, 100))}`);
         return false;
-      case 'sessions': {
-        const sessions = store.list();
-        if (!sessions.length) ui.info('no saved sessions yet');
-        for (const item of sessions) ui.line(`  ${ui.cyan(item.id)}  ${String(item.title || '').slice(0, 50)}  ${ui.dim(item.updatedAt)}`);
+      case 'sessions':
+        listSessions();
+        return false;
+      case 'resume':
+        resumeSession(arg);
+        return false;
+      case 'session': {
+        const [subRaw, ...sessionRest] = arg.split(/\s+/).filter(Boolean);
+        const sub = (subRaw || 'list').toLowerCase();
+        const target = sessionRest.join(' ').trim();
+        if (sub === 'list') listSessions();
+        else if (sub === 'new') newSession();
+        else if (sub === 'resume') resumeSession(target);
+        else if (sub === 'delete' || sub === 'rm') deleteSession(target);
+        else if (sub === 'show') showSessionInfo(target);
+        else if (sub === 'rename') {
+          if (!target) {
+            ui.error('usage: /session rename <new title>');
+          } else {
+            session.title = target.slice(0, 200);
+            store.save(session);
+            ui.info(`renamed session to "${session.title}"`);
+          }
+        } else {
+          ui.error(`unknown session command "${sub}" — use list, new, resume <id>, delete <id>, rename <title>, show [id]`);
+        }
         return false;
       }
-      case 'resume': {
-        const loaded = arg ? store.get(arg) : null;
-        if (!loaded) {
-          ui.error(arg ? `session not found: ${arg}` : 'usage: /resume <id>');
-          return false;
-        }
-        session = loaded;
-        config.defaultProvider = session.provider || config.defaultProvider;
-        provider = safeProvider(config);
-        if (session.model) {
-          config.providers[config.defaultProvider] = { ...(config.providers[config.defaultProvider] || {}), model: session.model };
-        }
-        ui.info(`resumed ${session.id} · ${session.messages.length} messages`);
-        ui.info('history is in context; type a new message to continue');
+      case 'connect':
+      case 'login':
+        await connectProvider(arg);
         return false;
-      }
       case 'web': {
         if (arg === 'stop') {
           if (!webHandle) ui.info('web server is not running');
@@ -371,14 +537,37 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     process.stdout.write(prompt());
   });
 
-  const providerInfo = (() => {
-    try {
-      const cfg = getProviderConfig(config, config.defaultProvider);
-      return `${cfg.name} · ${cfg.model}`;
-    } catch {
-      return 'not configured';
-    }
-  })();
+  function printSlashMenu() {
+    ui.line();
+    ui.line(renderSlashMenu());
+    ui.line(ui.dim('Tab completes commands, subcommands and provider names.'));
+    ui.line();
+  }
+
+  let slashHintShown = false;
+  if (process.stdin.isTTY) {
+    const onKeypress = () => {
+      setImmediate(() => {
+        try {
+          if (rl.line === '/') {
+            if (!slashHintShown) {
+              slashHintShown = true;
+              process.stdout.write('\r\u001b[2K');
+              ui.line(renderSlashMenu());
+              ui.line(ui.dim('Tab completes commands, subcommands and provider names.'));
+              rl.prompt(true);
+            }
+          } else if (rl.line === '' || !rl.line.startsWith('/')) {
+            slashHintShown = false;
+          }
+        } catch {
+          /* ignore */
+        }
+      });
+    };
+    process.stdin.on('keypress', onKeypress);
+    rl.on('close', () => process.stdin.off('keypress', onKeypress));
+  }
 
   ui.line();
   ui.banner({
@@ -390,7 +579,7 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
   });
   ui.info(`session ${session.id}${session.messages.length ? ` · resumed with ${session.messages.length} messages` : ''}`);
   if (!provider) ui.warn(`${providerError || 'provider not configured'} — run "chan config set providers.${config.defaultProvider}.apiKey=..."`);
-  ui.line(ui.dim('Type a task, or /help for commands.'));
+  ui.line(ui.dim('Type a task, or type / for the command menu.'));
   ui.line();
 
   while (!closed || buffered.length) {
@@ -398,6 +587,10 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     if (line === null) break;
     const input = line.trim();
     if (!input) continue;
+    if (input === '/') {
+      printSlashMenu();
+      continue;
+    }
     history.push(input);
     if (input.startsWith('/')) {
       try {
@@ -427,4 +620,4 @@ function getModelName(config) {
   }
 }
 
-export { COMMAND_HELP };
+export { SLASH_COMMANDS as COMMAND_HELP };
