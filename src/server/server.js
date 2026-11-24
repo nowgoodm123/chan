@@ -492,7 +492,8 @@ export class ChanServer {
 
     session.provider = providerName;
     session.model = modelOverride || provider.model;
-    session.agent = agentName;
+    if (body.agent) session.agent = agentName;
+    else if (!session.agent) session.agent = agentName;
 
     const normalizedImages = [];
     for (const image of images.slice(0, 8)) {

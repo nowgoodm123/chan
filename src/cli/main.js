@@ -362,6 +362,7 @@ function commandTools({ flags, config, ui }) {
     ui.line(`${ui.cyan(tool.name.padEnd(12))} ${tool.description}`);
   }
   ui.line();
+  ui.line(ui.dim('Dynamic tools: skill (skills), subagent (agents), <server>_<tool> (MCP)'));
   ui.line(ui.dim(`Workspace: ${process.cwd()} · approval: ${config.agent.approval}`));
 }
 

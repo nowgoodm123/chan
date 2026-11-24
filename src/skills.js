@@ -51,9 +51,6 @@ function listSupportingFiles(dir, skillFile, depth = 0) {
 }
 
 function registerSkill(map, { file, id, source, dir }) {
-  if (!id || map.has(`${source}:${id}`)) {
-    /* later sources with the same id override below */
-  }
   let raw;
   try {
     raw = fs.readFileSync(file, 'utf8');

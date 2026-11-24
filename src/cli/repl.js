@@ -517,6 +517,7 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {}, 
         return false;
       case 'tools':
         for (const tool of describeTools()) ui.line(`  ${ui.cyan(tool.name.padEnd(12))} ${ui.dim(tool.description.slice(0, 100))}`);
+        ui.line(ui.dim('  dynamic: skill, subagent, <server>_<tool> (MCP)'));
         return false;
       case 'sessions':
         listSessions();
