@@ -332,7 +332,8 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {}, 
       baseProvider,
       spec: options.modelSpec,
     });
-    const activeProvider = resolved.provider;
+    let activeProvider = resolved.provider;
+    let providerName = resolved.name;
     const images = pendingImages.splice(0);
     const userMessage = { role: 'user', content: text };
     if (images.length) userMessage.images = images;
@@ -352,13 +353,27 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {}, 
         config,
         session,
         provider: activeProvider,
-        providerName: resolved.name,
+        providerName,
         approvalMode: approvalMode(),
         approve,
         signal: controller.signal,
         mcpManager,
         agentName: options.agentName || null,
       });
+      if (!options.modelSpec && runtime.profile?.model) {
+        try {
+          const agentProvider = resolveProviderForSpec({
+            config,
+            baseName: providerName,
+            baseProvider: activeProvider,
+            spec: runtime.profile.model,
+          });
+          activeProvider = agentProvider.provider;
+          providerName = agentProvider.name;
+        } catch (err) {
+          ui.warn(`agent model: ${err.message}`);
+        }
+      }
     } catch (err) {
       currentAbort = null;
       ui.error(err.message);
@@ -400,27 +415,37 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {}, 
         spec: command.model,
       });
       const sessionAgent = session.agent || config.agent.defaultAgent || 'build';
-      const runtime = await createRuntime({
-        cwd,
-        config,
-        session,
-        provider: resolved.provider,
-        providerName: resolved.name,
-        approvalMode: approvalMode(),
-        approve,
-        mcpManager,
-        agentName: sessionAgent,
-      });
-      if (!runtime.runSubagent) throw new Error('subagents are not available');
-      const result = await runtime.runSubagent({
-        agent: command.agent || 'general',
-        prompt: expanded,
-        model: command.model || undefined,
-      });
-      session.messages.push({ role: 'user', content: `/${command.name} ${argsText}`.trim() });
-      session.messages.push({ role: 'assistant', content: result });
-      store.save(session);
-      ui.line(result);
+      const controller = new AbortController();
+      currentAbort = controller;
+      try {
+        const runtime = await createRuntime({
+          cwd,
+          config,
+          session,
+          provider: resolved.provider,
+          providerName: resolved.name,
+          approvalMode: approvalMode(),
+          approve,
+          signal: controller.signal,
+          mcpManager,
+          agentName: sessionAgent,
+        });
+        if (!runtime.runSubagent) throw new Error('subagents are not available');
+        const result = await runtime.runSubagent({
+          agent: command.agent || 'general',
+          prompt: expanded,
+          model: command.model || undefined,
+        });
+        session.messages.push({ role: 'user', content: `/${command.name} ${argsText}`.trim() });
+        session.messages.push({ role: 'assistant', content: result });
+        store.save(session);
+        ui.line(result);
+      } catch (err) {
+        if (err.name === 'AbortError') ui.warn('subagent stopped');
+        else ui.error(err.message);
+      } finally {
+        currentAbort = null;
+      }
       return;
     }
     await turn(expanded, {
@@ -594,12 +619,20 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {}, 
           }
           session.agent = profile.name;
           if (profile.model) {
-            session.model = profile.model;
-            config.providers[config.defaultProvider] = {
-              ...(config.providers[config.defaultProvider] || {}),
-              model: profile.model,
-            };
-            provider = safeProvider(config);
+            try {
+              const resolved = resolveProviderForSpec({
+                config,
+                baseName: config.defaultProvider,
+                baseProvider: provider,
+                spec: profile.model,
+              });
+              config.defaultProvider = resolved.name;
+              session.provider = resolved.name;
+              session.model = resolved.model || profile.model;
+              provider = resolved.provider;
+            } catch (err) {
+              ui.warn(`agent model: ${err.message}`);
+            }
           }
           store.save(session);
           ui.info(`agent set to ${profile.name} (${profile.mode})${profile.model ? ` · model ${profile.model}` : ''}`);
