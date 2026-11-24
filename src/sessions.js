@@ -82,7 +82,7 @@ export class SessionStore {
     return path.join(this.dir, `${id}.json`);
   }
 
-  create({ provider = null, model = null, approval = null, cwd = this.cwd, title = 'New session' } = {}) {
+  create({ provider = null, model = null, approval = null, agent = null, cwd = this.cwd, title = 'New session' } = {}) {
     const now = new Date().toISOString();
     const session = {
       id: crypto.randomUUID(),
@@ -91,6 +91,7 @@ export class SessionStore {
       provider,
       model,
       approval,
+      agent,
       createdAt: now,
       updatedAt: now,
       messages: [],

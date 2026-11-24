@@ -102,6 +102,7 @@ chan
 - `/connect [provider]` — 交互式连接模型：类型、Base URL、模型、API Key，保存后立即生效
 - `/model`、`/provider`、`/approval` — 快速切换模型 / Provider / 审批模式
 - `/attach <image>`、`/detach`、`/tools`、`/web [open|stop]`、`/config`、`/help`、`/exit`
+- `/agent [name]`、`/agents`、`/skills`、`/commands`、`/mcps` — Agent 与扩展管理
 
 连接示例：
 

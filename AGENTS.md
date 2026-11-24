@@ -18,12 +18,15 @@ Tests run on Windows, macOS and Linux. Never require real network or API keys in
 ## Layout
 
 - `src/agent.js` — agent loop, event stream, tool execution, loop detection.
+- `src/runtime.js` — assembles agent profile, skills, MCP tools, subagent runner.
+- `src/agents.js`, `src/skills.js`, `src/commands.js` — extension discovery/formatting.
+- `src/mcp/` — MCP JSON-RPC clients (stdio / Streamable HTTP) and manager.
 - `src/providers/` — `openai.js`, `anthropic.js`, factory in `index.js`.
-- `src/tools/` — one file per tool; register in `ALL_TOOLS` (`src/tools/index.js`).
+- `src/tools/` — one file per tool; register in `ALL_TOOLS` (`src/tools/index.js`). Dynamic tools: `skill`, `subagent`, MCP.
 - `src/server/server.js` — HTTP + SSE API and static file serving.
 - `src/server/web/` — vanilla HTML/CSS/JS UI (no framework, CSP `default-src 'self'`).
 - `src/cli/` — `args.js`, `main.js`, `repl.js`, `runner.js`, `ui.js`.
-- `test/` — `node:test` suites.
+- `test/` — `node:test` suites; `fixtures/` holds the fake MCP server used by tests.
 - `docs/` — Chinese documentation; `site/index.html` — landing page.
 
 ## Conventions
@@ -39,5 +42,5 @@ Tests run on Windows, macOS and Linux. Never require real network or API keys in
 
 1. `npm test` — all tests pass.
 2. `npm run lint` — clean.
-3. Smoke test CLI: `node bin/chan.js models`, `node bin/chan.js tools`.
+3. Smoke test CLI: `node bin/chan.js models`, `node bin/chan.js tools`, `node bin/chan.js mcp`.
 4. Smoke test server: start `node bin/chan.js serve --port 0` and hit `/api/health`, `/`, `/about`.

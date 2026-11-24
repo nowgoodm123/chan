@@ -29,6 +29,8 @@ chan serve --host 127.0.0.1
 
 快捷键：`Enter` 发送，`Shift+Enter` 换行，`Ctrl/Cmd+N` 新建会话。
 
+扩展在浏览器中同样生效：直接发送 `/review src/auth.ts` 会展开自定义命令；Agent 可以使用 `skill`、`subagent` 与已连接的 MCP 工具。MCP 状态可通过 `GET /api/mcp` 查看，或在终端执行 `chan mcp`。
+
 ## 图片
 
 三种方式：

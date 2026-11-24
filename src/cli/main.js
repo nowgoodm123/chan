@@ -15,11 +15,13 @@ import {
   saveConfig,
   setConfigValue,
 } from '../config.js';
+import { expandCommand, loadCommands } from '../commands.js';
+import { createMcpManager } from '../mcp/index.js';
 import { createProvider } from '../providers/index.js';
+import { createRuntime, resolveProviderForSpec } from '../runtime.js';
 import { SessionStore } from '../sessions.js';
-import { createTools, describeTools } from '../tools/index.js';
+import { describeTools } from '../tools/index.js';
 import { startServer, openBrowser, SITE_DIR } from '../server/server.js';
-import { buildSystemPrompt } from '../agent.js';
 import { version } from '../version.js';
 import { parseArgs } from './args.js';
 import { ConsoleUI } from './ui.js';
@@ -36,6 +38,7 @@ USAGE
   chan config [show|path|get|set|edit]
   chan models [--presets]        list providers and available presets
   chan tools                     list agent tools
+  chan mcp [list|refresh]        show MCP server status
   chan sessions [list|rm <id>]   manage saved sessions
   chan about                     open the chan_code landing page
   chan help / chan version
@@ -73,7 +76,7 @@ EXAMPLES
   echo "fix the failing tests" | chan run
 `;
 
-const COMMANDS = new Set(['run', 'chat', 'serve', 'config', 'models', 'tools', 'sessions', 'init', 'about', 'help', 'version']);
+const COMMANDS = new Set(['run', 'chat', 'serve', 'config', 'models', 'tools', 'mcp', 'sessions', 'init', 'about', 'help', 'version']);
 
 function applyOverrides(config, flags) {
   if (flags.provider) config.defaultProvider = flags.provider;
@@ -136,45 +139,107 @@ async function commandRun({ positionals, flags, config, cwd, ui }) {
     prompt += flags.file.map((file) => fileSnippet(cwd, file)).join('');
   }
 
-  const provider = pickProvider(config);
+  let commandMeta = null;
+  if (prompt.startsWith('/')) {
+    const name = prompt.slice(1).split(/\s+/)[0];
+    const command = loadCommands({ cwd, config }).find((item) => item.name === name);
+    if (command) {
+      commandMeta = command;
+      ui.info(`running custom command /${command.name}`);
+      prompt = await expandCommand(command, prompt.slice(1 + name.length).trim(), { cwd });
+    }
+  }
+
+  const baseProvider = pickProvider(config);
+  const resolved = resolveProviderForSpec({
+    config,
+    baseName: config.defaultProvider,
+    baseProvider,
+    spec: commandMeta?.model,
+  });
+  const provider = resolved.provider;
+
   const store = new SessionStore({ cwd });
   const session = store.create({
     cwd,
-    provider: config.defaultProvider,
+    provider: resolved.name,
     model: provider.model,
     approval: config.agent.approval,
+    agent: commandMeta?.agent || config.agent.defaultAgent,
   });
   session.messages.push({ role: 'user', content: prompt });
   const uiApproval = makeApprovalFor(config.agent.approval);
-  const tools = createTools({ cwd, config: config.agent, session, approve: uiApproval });
-  const system = buildSystemPrompt({ cwd, custom: config.agent.systemPrompt });
 
-  ui.info(`chan_code · ${config.defaultProvider} · ${provider.model} · ${cwd}`);
-  ui.info(`session ${session.id}`);
-  ui.line();
+  const mcpManager = createMcpManager({ config, cwd, logger: (message) => ui.warn(message) });
+  await mcpManager.init();
+  try {
+    const runtime = await createRuntime({
+      cwd,
+      config,
+      session,
+      provider,
+      providerName: resolved.name,
+      approvalMode: config.agent.approval,
+      approve: uiApproval,
+      mcpManager,
+      agentName: commandMeta?.agent || null,
+    });
 
-  const result = await runTurn({
-    provider,
-    session,
-    tools,
-    system,
-    ui,
-    approve: uiApproval,
-    maxSteps: config.agent.maxSteps,
-    temperature: config.agent.temperature,
-    maxOutputChars: config.agent.maxOutputChars,
-  });
+    ui.info(`chan_code · ${resolved.name} · ${provider.model} · ${session.agent || config.agent.defaultAgent} · ${cwd}`);
+    ui.info(`session ${session.id}`);
+    ui.line();
 
-  store.save(session);
-  ui.line(ui.dim(`resume with: chan --resume ${session.id}`));
-  if (result.error) process.exitCode = 1;
+    const result = await runTurn({
+      provider,
+      session,
+      tools: runtime.tools,
+      system: runtime.system,
+      ui,
+      approve: uiApproval,
+      maxSteps: config.agent.maxSteps,
+      temperature: config.agent.temperature,
+      maxOutputChars: config.agent.maxOutputChars,
+    });
+
+    store.save(session);
+    ui.line(ui.dim(`resume with: chan --resume ${session.id}`));
+    if (result.error) process.exitCode = 1;
+  } finally {
+    await mcpManager.close();
+  }
 }
 
 async function commandChat({ flags, config, cwd, ui }) {
   if (!process.stdin.isTTY) {
     return commandRun({ positionals: [], flags, config, cwd, ui });
   }
-  return startRepl({ cwd, config, ui, resumeId: flags.resume, flags });
+  const mcpManager = createMcpManager({ config, cwd, logger: (message) => ui.warn(message) });
+  await mcpManager.init();
+  try {
+    return await startRepl({ cwd, config, ui, resumeId: flags.resume, flags, mcpManager });
+  } finally {
+    await mcpManager.close();
+  }
+}
+
+async function commandMcp({ positionals, config, cwd, ui }) {
+  const action = (positionals[0] || 'list').toLowerCase();
+  const manager = createMcpManager({ config, cwd, logger: (message) => ui.warn(message) });
+  await manager.init();
+  if (action === 'refresh') await manager.refresh();
+  const statuses = manager.statusesList();
+  if (!statuses.length) {
+    ui.info('no MCP servers configured. Add mcp.servers to your config file.');
+    ui.line(ui.dim('Example: chan config set mcp.servers.context7.type=remote'));
+  }
+  for (const status of statuses) {
+    const icon = status.connected ? ui.green('connected') : ui.red('failed');
+    ui.line(`${status.name.padEnd(16)} ${String(status.type).padEnd(8)} ${icon}`);
+    if (status.connected) ui.line(ui.dim(`  tools: ${status.tools.join(', ') || '(none)'}`));
+    else if (status.error) ui.line(ui.dim(`  ${status.error}`));
+  }
+  await manager.close();
+  if (action !== 'list' && action !== 'refresh') throw new Error(`unknown mcp command "${action}" (use list or refresh)`);
 }
 
 async function commandServe({ flags, config, cwd, ui }) {
@@ -389,6 +454,7 @@ export async function main(argv = []) {
   if (command === 'config') return commandConfig({ positionals, ui });
   if (command === 'models') return commandModels({ flags, config, ui });
   if (command === 'tools') return commandTools({ flags, config, ui });
+  if (command === 'mcp') return commandMcp({ positionals, config, cwd, ui });
   if (command === 'sessions') return commandSessions({ positionals, ui, cwd });
   if (command === 'serve') return commandServe({ flags, config, cwd, ui });
   if (command === 'run') return commandRun({ positionals, flags, config, cwd, ui });

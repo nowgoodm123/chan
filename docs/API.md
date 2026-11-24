@@ -71,7 +71,59 @@ Authorization: Bearer <token>
 
 ## GET /api/tools
 
-返回工具名、描述与 JSON Schema。
+返回 base 工具名、描述与 JSON Schema。`skill`、`subagent` 与 MCP 工具是动态工具，见下文接口。
+
+## GET /api/mcp
+
+返回 MCP 服务器状态与暴露的工具（首次调用会连接服务器）：
+
+```json
+{
+  "servers": [
+    { "name": "fake", "type": "local", "connected": true, "error": null, "tools": ["echo"] }
+  ],
+  "tools": [{ "name": "fake_echo", "description": "[MCP fake] Echo the provided text" }]
+}
+```
+
+## POST /api/mcp/refresh
+
+断开并重新连接所有 MCP Server，返回最新状态与工具。
+
+## GET /api/skills?cwd=<workspace>
+
+```json
+{
+  "cwd": "D:\\work\\app",
+  "skills": [
+    { "id": "git-release", "name": "Git Release", "description": "Prepare a release", "source": "project", "files": ["scripts/notes.txt"], "hidden": false, "bytes": 320 }
+  ]
+}
+```
+
+## GET /api/commands?cwd=<workspace>
+
+```json
+{
+  "cwd": "D:\\work\\app",
+  "commands": [
+    { "name": "review", "description": "Review a file", "agent": "plan", "model": null, "subagent": false, "template": "Review $ARGUMENTS", "source": "project" }
+  ]
+}
+```
+
+## GET /api/agents?cwd=<workspace>
+
+```json
+{
+  "cwd": "D:\\work\\app",
+  "defaultAgent": "build",
+  "agents": [
+    { "name": "build", "mode": "primary", "description": "Default coding agent with full tool access.", "tools": null, "builtin": true },
+    { "name": "reviewer", "mode": "subagent", "description": "Read-only reviewer", "tools": ["read", "grep"], "builtin": false }
+  ]
+}
+```
 
 ## GET /api/sessions
 
@@ -86,7 +138,7 @@ Authorization: Bearer <token>
 ## POST /api/sessions
 
 ```json
-{ "cwd": "D:\\work\\app", "provider": "deepseek", "model": "deepseek-chat", "approval": "auto" }
+{ "cwd": "D:\\work\\app", "provider": "deepseek", "model": "deepseek-chat", "agent": "build", "approval": "auto" }
 ```
 
 `cwd` 可选，必须是已存在目录，默认服务端工作目录。返回 201：
@@ -102,7 +154,7 @@ Authorization: Bearer <token>
 ## PATCH /api/sessions/:id
 
 ```json
-{ "title": "新标题", "provider": "openai", "model": "gpt-4o-mini", "approval": "deny" }
+{ "title": "新标题", "provider": "openai", "model": "gpt-4o-mini", "agent": "plan", "approval": "deny" }
 ```
 
 ## DELETE /api/sessions/:id
@@ -125,10 +177,13 @@ Authorization: Bearer <token>
   ],
   "provider": "deepseek",
   "model": "deepseek-chat",
+  "agent": "build",
   "approval": "auto",
   "maxSteps": 40
 }
 ```
+
+`message` 以 `/命令名 参数` 开头时会先展开自定义命令（`agent` / `model` / 模板中的参数与 shell 插值），再执行；`subagent: true` 的命令会直接运行子 Agent。
 
 响应头：`Content-Type: text/event-stream`。
 
@@ -136,7 +191,7 @@ Authorization: Bearer <token>
 
 ```text
 event: ready
-data: {"sessionId":"...","title":"...","provider":"deepseek","model":"deepseek-chat","approval":"auto"}
+data: {"sessionId":"...","title":"...","provider":"deepseek","model":"deepseek-chat","agent":"build","approval":"auto","command":null}
 
 event: step
 data: {"type":"step","step":1,"maxSteps":40}

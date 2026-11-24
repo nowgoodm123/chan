@@ -18,10 +18,11 @@
 | 多模型 | DeepSeek、OpenAI、Anthropic、OpenRouter、Groq、Qwen、Moonshot、GLM、Ollama、LM Studio、vLLM，以及任意兼容端点 |
 | 两种协议 | OpenAI `chat/completions` 与 Anthropic `messages`，均支持流式 + 工具调用 + 视觉输入 |
 | 真实工具 | `read` `write` `edit` `list` `glob` `grep` `bash` `webfetch` `todo_write` `todo_read` |
+| 扩展 | MCP Server（local / remote）、Skills、自定义命令、自定义 Agent 与子 Agent |
 | 安全 | 工作区路径约束、危险命令识别、`auto/ask/deny` 审批模式、Web 服务 Token、默认仅本机监听 |
 | 会话 | 按工作区保存到 `~/.chan_code/sessions`，可 `chan --resume <id>` 恢复 |
 | 跨平台 | Windows（PowerShell）、macOS、Linux；纯 Node.js ESM，无第三方依赖 |
-| 可测试 | 54 个离线测试，覆盖配置、工具、Provider、Agent、会话、命令面板、HTTP/SSE 服务 |
+| 可测试 | 72 个离线测试，覆盖配置、工具、Provider、Agent、MCP、Skills、Commands、子 Agent、HTTP/SSE 服务 |
 | 文档 | 完整使用、配置、工具、架构、API、测试文档 + 介绍网站 |
 
 ---
@@ -106,6 +107,8 @@ chan> 修复上传接口没有重试的问题，并补测试
 
 - `/session` — 会话管理：`list` / `new` / `resume <id>` / `delete <id>` / `rename <title>` / `show [id]`
 - `/connect` — 交互式连接模型：选择 Provider，填写 Base URL、模型、API Key，并写入配置
+- `/agent` — 切换主 Agent（`build` / `plan` / 自定义）；`/agents` 查看全部
+- `/skills` `/commands` `/mcps` — 查看已加载的扩展；自定义命令直接输入 `/命令名` 使用
 - `/model` `/provider` `/approval` — 切换模型、Provider 或审批模式
 - `/attach` `/detach` `/tools` `/web` `/cwd` `/config` `/help` `/exit` — 其他快捷操作
 
@@ -145,6 +148,22 @@ npm run site -- --port 8787
 ```
 
 站点是纯静态 `site/index.html`，可直接部署到 GitHub Pages / Nginx / 任意静态托管。
+
+### 4. 扩展：MCP / Skills / Commands / Agents
+
+```text
+.chan/
+├── skills/git-release/SKILL.md     # 可复用工作流，模型按需加载
+├── commands/review.md               # /review 自定义命令，支持 $ARGUMENTS
+└── agents/reviewer.md               # 自定义 Agent / 子 Agent
+```
+
+- **MCP**：在配置中填写 `mcp.servers`（local 或 remote），工具自动以 `server_tool` 暴露；用 `chan mcp` 或 `/mcps` 查看。
+- **Skills**：`SKILL.md` 的 description 会进入系统提示，Agent 用 `skill` 工具加载正文与附带文件。
+- **Commands**：Markdown + frontmatter，支持位置参数、shell 插值、指定 agent/model，`subagent: true` 可后台执行。
+- **Agents**：内置 `build` / `plan` / `explore` / `general`；`/agent plan` 进入只读规划模式；主 Agent 可通过 `subagent` 工具委派任务（最多一层嵌套）。
+
+完整格式、示例与安全说明见 [docs/EXTENSIONS.md](docs/EXTENSIONS.md)。
 
 ---
 
@@ -194,23 +213,29 @@ chan -p my
 bin/chan.js               命令行入口
 src/
   agent.js                Agent 主循环（流式、工具执行、循环检测、用量统计）
+  runtime.js              Agent Profile + Skills + MCP 工具 + 子 Agent 运行时
+  agents.js               内置/自定义 Agent 发现与提示词
+  skills.js               SKILL.md 发现与加载
+  commands.js             自定义命令发现、参数与 shell 插值
   config.js               配置合并、预设、环境变量、密钥解析、打码
   sessions.js             会话持久化、图片数据回填
   index.js                公共 API
+  mcp/                    MCP JSON-RPC 客户端（stdio / Streamable HTTP）与管理器
   providers/
     openai.js             OpenAI 兼容流式协议（含工具调用与视觉）
     anthropic.js          Anthropic messages 流式协议
     index.js              Provider 工厂与校验
-  tools/                  read write edit list glob grep bash webfetch todo
+  tools/                  read write edit list glob grep bash webfetch todo skill subagent
   util/                   SSE、HTTP 重试、路径安全、glob、文本处理
   server/
     server.js             HTTP + SSE API、静态资源、审批队列
     web/                  浏览器单页应用（HTML/CSS/JS）
   cli/                    args / main / repl / runner / ui
 test/                     node:test 测试（离线）
+fixtures/                 测试用 MCP Server
 site/index.html           介绍网站（可直接静态部署）
 docs/                     使用与架构文档
-scripts/                  install.ps1 / install.sh / lint.js
+scripts/                  install.ps1 / install.sh / lint.js / serve-site.js
 ```
 
 详细架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -220,7 +245,7 @@ scripts/                  install.ps1 / install.sh / lint.js
 ## 测试与质量
 
 ```bash
-npm test        # 54 个测试，无需网络与 API Key
+npm test        # 72 个测试，无需网络与 API Key
 npm run lint    # 语法检查 + 入口与文档完整性检查
 ```
 
@@ -231,7 +256,8 @@ npm run lint    # 语法检查 + 入口与文档完整性检查
 - Provider：OpenAI/Anthropic 的 SSE 分片解析、工具调用拼接、视觉消息、错误提示；
 - Agent：工具结果回填、未知工具、非法参数、循环检测、步数上限、错误传播；
 - 会话：持久化、工作区隔离、图片 data URL 剥离与回填；
-- 服务端：健康检查、配置、会话 CRUD、SSE 聊天、上传校验、静态页面、Token 鉴权、审批接口。
+- 扩展：MCP 本地/远程连接与工具调用、SKILL.md 发现与加载、命令参数与 shell 插值、Agent 发现与子 Agent 运行；
+- 服务端：健康检查、配置、会话 CRUD、SSE 聊天、上传校验、静态页面、Token 鉴权、审批接口、MCP 工具调用。
 
 ---
 
@@ -242,6 +268,7 @@ npm run lint    # 语法检查 + 入口与文档完整性检查
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | 安装、配置、第一次对话 |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | 完整配置项、环境变量、模型接入 |
 | [docs/TOOLS.md](docs/TOOLS.md) | 每个工具的输入输出与安全约束 |
+| [docs/EXTENSIONS.md](docs/EXTENSIONS.md) | MCP、Skills、自定义命令、Agent 与子 Agent |
 | [docs/WEB_UI.md](docs/WEB_UI.md) | 浏览器功能、上传、远程访问 |
 | [docs/API.md](docs/API.md) | HTTP/SSE 接口文档 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 模块划分、消息流、扩展点 |
@@ -255,11 +282,11 @@ npm run lint    # 语法检查 + 入口与文档完整性检查
 - [x] Windows / macOS / Linux 的 CLI 与 Web UI
 - [x] OpenAI 兼容 + Anthropic Provider（流式、工具、视觉）
 - [x] 会话持久化、审批、Token 鉴权
+- [x] MCP（Model Context Protocol）工具接入（local / remote）
+- [x] Skills、自定义命令、自定义 Agent 与子 Agent
 - [ ] 发布到 npm / Homebrew / winget / Scoop
 - [ ] 会话内全文搜索与导出（Markdown / JSON）
-- [ ] MCP（Model Context Protocol）工具接入
-- [ ] 多 Agent 子任务与并行工具执行
-- [ ] 更细粒度的审批规则（按命令前缀白名单）
+- [ ] 并行子 Agent 与更细粒度的审批规则（命令前缀白名单）
 
 欢迎贡献，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 

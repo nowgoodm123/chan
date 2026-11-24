@@ -108,6 +108,20 @@ export const DEFAULT_CONFIG = {
     maxOutputChars: 20000,
     temperature: 0.2,
     systemPrompt: '',
+    defaultAgent: 'build',
+  },
+  mcp: {
+    servers: {},
+    timeoutMs: 30000,
+  },
+  skills: {
+    dirs: [],
+  },
+  commands: {
+    dirs: [],
+  },
+  agents: {
+    dirs: [],
   },
   server: {
     host: '127.0.0.1',
@@ -135,7 +149,8 @@ export function deepMerge(base, override) {
 
 export function readJsonFile(filePath) {
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const raw = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+    return JSON.parse(raw);
   } catch (err) {
     if (err.code === 'ENOENT') return null;
     throw new Error(`failed to read ${filePath}: ${err.message}`);
@@ -164,6 +179,9 @@ export function envOverrides(env = process.env) {
   }
   if (env.CHAN_APPROVAL) {
     out.agent = { ...(out.agent || {}), approval: env.CHAN_APPROVAL };
+  }
+  if (env.CHAN_AGENT) {
+    out.agent = { ...(out.agent || {}), defaultAgent: env.CHAN_AGENT };
   }
   if (env.CHAN_MAX_STEPS) {
     out.agent = { ...(out.agent || {}), maxSteps: Number(env.CHAN_MAX_STEPS) };

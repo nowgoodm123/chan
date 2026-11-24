@@ -5,6 +5,11 @@ export const SLASH_COMMANDS = [
   { command: '/resume', args: '<id>', description: 'resume a saved session (alias)', hidden: true },
   { command: '/connect', args: '[provider]', description: 'connect a provider: type, base URL, model, API key' },
   { command: '/login', args: '[provider]', description: 'alias of /connect', hidden: true },
+  { command: '/agent', args: '[name]', description: 'show or switch the main agent profile' },
+  { command: '/agents', args: '', description: 'list agent profiles' },
+  { command: '/skills', args: '', description: 'list discovered skills' },
+  { command: '/commands', args: '', description: 'list custom commands' },
+  { command: '/mcps', args: '[refresh]', description: 'show MCP servers and tools' },
   { command: '/model', args: '[name]', description: 'show or change the model' },
   { command: '/provider', args: '[name]', description: 'show or switch the provider' },
   { command: '/approval', args: '[auto|ask|deny]', description: 'set the command approval mode' },
@@ -23,11 +28,13 @@ export const SLASH_COMMANDS = [
 
 const SESSION_SUBCOMMANDS = ['list', 'new', 'resume', 'delete', 'rename', 'show'];
 
-function argOptions(command, { providers = [], files = [] } = {}) {
+function argOptions(command, { providers = [], files = [], agents = [] } = {}) {
   if (command === '/session') return SESSION_SUBCOMMANDS;
   if (command === '/connect' || command === '/login' || command === '/provider') return providers;
+  if (command === '/agent') return agents;
   if (command === '/approval') return ['auto', 'ask', 'deny'];
   if (command === '/web') return ['open', 'stop'];
+  if (command === '/mcps' || command === '/mcp') return ['refresh'];
   if (command === '/attach') return files;
   return [];
 }

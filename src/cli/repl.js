@@ -2,9 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
-import { buildSystemPrompt } from '../agent.js';
-import { CONFIG_PATH, getProviderConfig, PROVIDER_PRESETS, redactConfig, resolveSecret, saveConfig } from '../config.js';
+import { loadAgents } from '../agents.js';
+import { expandCommand, loadCommands } from '../commands.js';
+import { APP_HOME, CONFIG_PATH, getProviderConfig, PROVIDER_PRESETS, redactConfig, resolveSecret, saveConfig } from '../config.js';
 import { createProvider } from '../providers/index.js';
+import { createRuntime, resolveProviderForSpec } from '../runtime.js';
+import { loadSkills } from '../skills.js';
 import { startServer, openBrowser, SITE_DIR } from '../server/server.js';
 import { SessionStore } from '../sessions.js';
 import { createTools, describeTools } from '../tools/index.js';
@@ -35,8 +38,9 @@ function loadImageAttachment(cwd, file) {
   return { name: path.basename(absolute), mediaType, dataUrl, path };
 }
 
-export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }) {
+export async function startRepl({ cwd, config, ui, resumeId = null, flags = {}, mcpManager = null }) {
   const store = new SessionStore({ cwd });
+  const BUILTIN_COMMANDS = new Set([...SLASH_COMMANDS.map((entry) => entry.command.slice(1)), 'q']);
   let provider = null;
   let providerError = null;
   let pendingImages = [];
@@ -60,6 +64,7 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
       provider: config.defaultProvider,
       model: provider?.model || null,
       approval: config.agent.approval,
+      agent: config.agent.defaultAgent || 'build',
     });
   } else {
     provider = safeProvider(config);
@@ -105,7 +110,8 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     } catch {
       files = [];
     }
-    return slashCompletions(line, { providers: Object.keys(config.providers || {}), files });
+    const agents = [...loadAgents({ cwd, config }).keys()];
+    return slashCompletions(line, { providers: Object.keys(config.providers || {}), files, agents });
   };
 
   function readLine(promptText = '') {
@@ -170,6 +176,7 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
       provider: config.defaultProvider,
       model: provider?.model || null,
       approval: config.agent.approval,
+      agent: config.agent.defaultAgent || 'build',
     });
     history.length = 0;
     pendingImages = [];
@@ -317,36 +324,53 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     }
   }
 
-  async function turn(text) {
-    const activeProvider = ensureProvider();
+  async function turn(text, options = {}) {
+    const baseProvider = ensureProvider();
+    const resolved = resolveProviderForSpec({
+      config,
+      baseName: config.defaultProvider,
+      baseProvider,
+      spec: options.modelSpec,
+    });
+    const activeProvider = resolved.provider;
     const images = pendingImages.splice(0);
     const userMessage = { role: 'user', content: text };
     if (images.length) userMessage.images = images;
     session.messages.push(userMessage);
     session.updatedAt = new Date().toISOString();
     if (session.title === 'New session' || !session.title) {
-      session.title = text.slice(0, 60) || 'Image message';
+      session.title = options.title || text.slice(0, 60) || 'Image message';
     }
     store.save(session);
 
     const controller = new AbortController();
     currentAbort = controller;
-    const tools = createTools({
-      cwd,
-      config: config.agent,
-      session,
-      approve,
-      signal: controller.signal,
-      approvalMode: approvalMode(),
-    });
-    const system = buildSystemPrompt({ cwd, custom: config.agent.systemPrompt });
+    let runtime;
+    try {
+      runtime = await createRuntime({
+        cwd,
+        config,
+        session,
+        provider: activeProvider,
+        providerName: resolved.name,
+        approvalMode: approvalMode(),
+        approve,
+        signal: controller.signal,
+        mcpManager,
+        agentName: options.agentName || null,
+      });
+    } catch (err) {
+      currentAbort = null;
+      ui.error(err.message);
+      return;
+    }
     ui.line();
     try {
       const result = await runTurn({
         provider: activeProvider,
         session,
-        tools,
-        system,
+        tools: runtime.tools,
+        system: runtime.system,
         ui,
         approve,
         signal: controller.signal,
@@ -364,6 +388,48 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     }
   }
 
+  async function runCustomCommand(command, argsText) {
+    const expanded = await expandCommand(command, argsText, { cwd });
+    ui.info(`command /${command.name}${command.agent ? ` · agent ${command.agent}` : ''}${command.model ? ` · ${command.model}` : ''}`);
+    if (command.subagent) {
+      const baseProvider = ensureProvider();
+      const resolved = resolveProviderForSpec({
+        config,
+        baseName: config.defaultProvider,
+        baseProvider,
+        spec: command.model,
+      });
+      const sessionAgent = session.agent || config.agent.defaultAgent || 'build';
+      const runtime = await createRuntime({
+        cwd,
+        config,
+        session,
+        provider: resolved.provider,
+        providerName: resolved.name,
+        approvalMode: approvalMode(),
+        approve,
+        mcpManager,
+        agentName: sessionAgent,
+      });
+      if (!runtime.runSubagent) throw new Error('subagents are not available');
+      const result = await runtime.runSubagent({
+        agent: command.agent || 'general',
+        prompt: expanded,
+        model: command.model || undefined,
+      });
+      session.messages.push({ role: 'user', content: `/${command.name} ${argsText}`.trim() });
+      session.messages.push({ role: 'assistant', content: result });
+      store.save(session);
+      ui.line(result);
+      return;
+    }
+    await turn(expanded, {
+      agentName: command.agent,
+      modelSpec: command.model,
+      title: `/${command.name}${argsText ? ` ${argsText}` : ''}`.slice(0, 120),
+    });
+  }
+
   async function handleCommand(line) {
     const [rawCommand, ...rest] = line.slice(1).split(/\s+/);
     const command = rawCommand.toLowerCase();
@@ -372,6 +438,13 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
       case 'help':
         ui.line(ui.bold('Commands'));
         ui.line(renderSlashMenu({ all: true }));
+        {
+          const customCommands = loadCommands({ cwd, config });
+          if (customCommands.length) {
+            ui.line(ui.bold('Custom commands'));
+            for (const item of customCommands) ui.line(`  /${item.name.padEnd(20)} ${ui.dim(item.description)}`);
+          }
+        }
         ui.line(ui.dim('Everything else is sent to the agent. Ctrl+C stops a running turn.'));
         return false;
       case 'exit':
@@ -500,6 +573,92 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
         }
         return false;
       }
+      case 'agent': {
+        const agents = loadAgents({ cwd, config });
+        if (!arg) {
+          const current = session.agent || config.agent.defaultAgent || 'build';
+          ui.line(`agent: ${current}`);
+          for (const profile of agents.values()) {
+            if (profile.hidden) continue;
+            const marker = profile.name === current ? ui.green('*') : ' ';
+            ui.line(` ${marker} ${profile.name.padEnd(12)} ${String(profile.mode).padEnd(9)} ${ui.dim(profile.description || '')}`);
+          }
+          return false;
+        }
+        {
+          const profile = agents.get(arg) || agents.get(arg.toLowerCase());
+          if (!profile) {
+            ui.error(`unknown agent "${arg}". Available: ${[...agents.keys()].join(', ')}`);
+            return false;
+          }
+          session.agent = profile.name;
+          if (profile.model) {
+            session.model = profile.model;
+            config.providers[config.defaultProvider] = {
+              ...(config.providers[config.defaultProvider] || {}),
+              model: profile.model,
+            };
+            provider = safeProvider(config);
+          }
+          store.save(session);
+          ui.info(`agent set to ${profile.name} (${profile.mode})${profile.model ? ` · model ${profile.model}` : ''}`);
+        }
+        return false;
+      }
+      case 'agents': {
+        const agents = loadAgents({ cwd, config });
+        for (const profile of agents.values()) {
+          if (profile.hidden) continue;
+          const marker = profile.name === (session.agent || config.agent.defaultAgent) ? ui.green('*') : ' ';
+          ui.line(` ${marker} ${ui.cyan(profile.name.padEnd(12))} ${String(profile.mode).padEnd(9)} ${ui.dim(profile.description || '')}${profile.source ? ui.dim(` [${profile.source}]`) : ''}`);
+        }
+        return false;
+      }
+      case 'skills': {
+        const skills = loadSkills({ cwd, config });
+        if (!skills.length) {
+          ui.info('no skills found. Add .chan/skills/<id>/SKILL.md or ~/.chan_code/skills/<id>/SKILL.md');
+          return false;
+        }
+        for (const skill of skills) {
+          ui.line(`  ${ui.cyan(skill.id.padEnd(20))} ${ui.dim(skill.description || '')}${skill.hidden ? ui.dim(' [hidden]') : ''}`);
+        }
+        return false;
+      }
+      case 'commands': {
+        const commands = loadCommands({ cwd, config });
+        if (!commands.length) {
+          ui.info('no custom commands. Add .chan/commands/<name>.md or ~/.chan_code/commands/<name>.md');
+          return false;
+        }
+        for (const item of commands) {
+          ui.line(`  ${ui.cyan(`/${item.name}`.padEnd(22))} ${ui.dim(item.description || '')}${item.subagent ? ui.dim(' [subagent]') : ''}`);
+        }
+        return false;
+      }
+      case 'mcp':
+      case 'mcps': {
+        if (!mcpManager) {
+          ui.info('MCP is only connected when a manager is available');
+          return false;
+        }
+        if (arg === 'refresh') {
+          await mcpManager.refresh();
+          ui.info('MCP servers refreshed');
+        }
+        const statuses = mcpManager.statusesList();
+        if (!statuses.length) {
+          ui.info('no MCP servers configured. Add mcp.servers to the config file.');
+          return false;
+        }
+        for (const status of statuses) {
+          const state = status.connected ? ui.green('connected') : ui.red('failed');
+          ui.line(`  ${ui.cyan(status.name.padEnd(16))} ${String(status.type).padEnd(8)} ${state}`);
+          if (status.connected) ui.line(ui.dim(`    tools: ${status.tools.join(', ') || '(none)'}`));
+          else if (status.error) ui.line(ui.dim(`    ${status.error}`));
+        }
+        return false;
+      }
       case 'cwd':
         ui.line(cwd);
         return false;
@@ -578,8 +737,9 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     approval: approvalMode(),
   });
   ui.info(`session ${session.id}${session.messages.length ? ` · resumed with ${session.messages.length} messages` : ''}`);
+  ui.info(`agent: ${session.agent || config.agent.defaultAgent || 'build'} · skills/commands/agents load from .chan/ and ${APP_HOME}`);
   if (!provider) ui.warn(`${providerError || 'provider not configured'} — run "chan config set providers.${config.defaultProvider}.apiKey=..."`);
-  ui.line(ui.dim('Type a task, or type / for the command menu.'));
+  ui.line(ui.dim('Type a task, or type / for the command menu. Try /commands, /skills, /agents, /mcps.'));
   ui.line();
 
   while (!closed || buffered.length) {
@@ -593,6 +753,21 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {} }
     }
     history.push(input);
     if (input.startsWith('/')) {
+      const inputName = input.slice(1).split(/\s+/)[0].toLowerCase();
+      if (!BUILTIN_COMMANDS.has(inputName)) {
+        const customCommand = loadCommands({ cwd, config }).find((item) => item.name.toLowerCase() === inputName);
+        if (!customCommand) {
+          ui.error(`unknown command /${inputName} — try /help or /commands`);
+          continue;
+        }
+        try {
+          await runCustomCommand(customCommand, input.slice(1 + inputName.length).trim());
+        } catch (err) {
+          ui.error(err.message);
+        }
+        ui.line();
+        continue;
+      }
       try {
         const shouldExit = await handleCommand(input);
         if (shouldExit) break;

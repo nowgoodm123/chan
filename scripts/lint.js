@@ -18,7 +18,7 @@ function walk(dir, files = []) {
   return files;
 }
 
-for (const dir of ['bin', 'src', 'test', 'scripts']) {
+for (const dir of ['bin', 'src', 'test', 'scripts', 'fixtures']) {
   const absolute = path.join(root, dir);
   if (!fs.existsSync(absolute)) continue;
   for (const file of walk(absolute)) {
@@ -35,7 +35,7 @@ for (const [name, bin] of Object.entries(pkg.bin || {})) {
   if (!fs.existsSync(path.join(root, bin))) problems.push(`package.json bin "${name}" points to missing ${bin}`);
 }
 
-for (const required of ['README.md', 'LICENSE', 'site/index.html', 'docs/GETTING_STARTED.md', 'docs/CONFIGURATION.md']) {
+for (const required of ['README.md', 'LICENSE', 'site/index.html', 'docs/GETTING_STARTED.md', 'docs/CONFIGURATION.md', 'docs/EXTENSIONS.md']) {
   if (!fs.existsSync(path.join(root, required))) problems.push(`missing required file ${required}`);
 }
 

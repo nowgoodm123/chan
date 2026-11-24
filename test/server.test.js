@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 process.env.CHAN_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'chan-server-home-'));
+const mcpFixture = fileURLToPath(new URL('../fixtures/mcp-fake-server.mjs', import.meta.url));
 
 const { ChanServer } = await import('../src/server/server.js');
 const { DEFAULT_CONFIG } = await import('../src/config.js');
@@ -293,6 +295,71 @@ test('ask approval mode pauses for approval and resumes the agent', async (t) =>
   assert.equal(approved, true);
   assert.match(transcript, /approved-marker/);
   assert.match(transcript, /tool finished/);
+});
+
+test('extension endpoints expose skills, commands, agents and mcp status', async (t) => {
+  const { base } = await withServer(t);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'chan-ext-'));
+  fs.mkdirSync(path.join(workspace, '.chan', 'skills', 'demo'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, '.chan', 'skills', 'demo', 'SKILL.md'), '---\ndescription: Demo skill\n---\nDemo body');
+  fs.mkdirSync(path.join(workspace, '.chan', 'commands'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, '.chan', 'commands', 'review.md'), '---\ndescription: Review\n---\nReview $ARGUMENTS');
+  fs.mkdirSync(path.join(workspace, '.chan', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, '.chan', 'agents', 'reviewer.md'), '---\ndescription: Reviewer\nmode: subagent\n---\nReview only');
+
+  const query = `cwd=${encodeURIComponent(workspace)}`;
+  const skills = await (await fetch(`${base}/api/skills?${query}`)).json();
+  assert.equal(skills.skills.length, 1);
+  assert.equal(skills.skills[0].id, 'demo');
+
+  const commands = await (await fetch(`${base}/api/commands?${query}`)).json();
+  assert.equal(commands.commands[0].name, 'review');
+  assert.equal(commands.commands[0].description, 'Review');
+
+  const agents = await (await fetch(`${base}/api/agents?${query}`)).json();
+  assert.ok(agents.agents.find((agent) => agent.name === 'build'));
+  assert.ok(agents.agents.find((agent) => agent.name === 'reviewer'));
+  assert.equal(agents.defaultAgent, 'build');
+
+  const mcp = await (await fetch(`${base}/api/mcp`)).json();
+  assert.deepEqual(mcp.servers, []);
+  assert.deepEqual(mcp.tools, []);
+});
+
+test('chat can use MCP tools discovered from a local server', async (t) => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.mcp = {
+    timeoutMs: 15000,
+    servers: { fake: { type: 'local', command: [process.execPath, mcpFixture] } },
+  };
+  const provider = {
+    name: 'fake',
+    model: 'fake-1',
+    type: 'openai',
+    async *stream({ messages }) {
+      const hasTool = messages.some((message) => message.role === 'tool');
+      if (!hasTool) {
+        yield { type: 'text-delta', text: 'calling mcp' };
+        yield { type: 'tool-call', id: 'm1', name: 'fake_echo', arguments: JSON.stringify({ text: 'hello' }) };
+        yield { type: 'done', stopReason: 'tool_calls' };
+      } else {
+        const toolMessages = messages.filter((message) => message.role === 'tool');
+        const last = toolMessages[toolMessages.length - 1];
+        yield { type: 'text-delta', text: `got ${last.content}` };
+        yield { type: 'done', stopReason: 'stop' };
+      }
+    },
+  };
+  const server = new ChanServer({ cwd, config, providerFactory: () => provider });
+  const info = await server.listen({ port: 0, host: '127.0.0.1' });
+  t.after(() => server.close());
+
+  const created = await (
+    await fetch(`${info.url}/api/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  ).json();
+  const { text } = await postChat(info.url, created.session.id, { message: 'use mcp' });
+  assert.match(text, /echo:hello/);
+  assert.match(text, /got echo:hello/);
 });
 
 test('approval endpoint reports unknown requests', async (t) => {

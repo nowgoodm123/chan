@@ -417,7 +417,7 @@
             <div class="terminal-body"><span class="c-dim">PS D:\work\app&gt;</span> <span class="c-accent">chan</span>
 
 <span class="c-dim">╭──────────────────────────────────────────────────────────────╮
-│ chan_code v0.1.0 · open-source AI coding agent               │
+│ chan_code v0.2.0 · open-source AI coding agent               │
 │ provider: deepseek   model: deepseek-chat                    │
 │ workspace: D:\work\app   approval: auto                      │
 ╰──────────────────────────────────────────────────────────────╯</span>
@@ -455,6 +455,16 @@ failure path in <span class="c-amber">src/routes/upload.test.ts</span>. All test
               <span class="ico">tools</span>
               <h3>Real coding tools</h3>
               <p>read, write, edit, list, glob, grep, bash, webfetch and a todo list. Path-safety checks and dangerous-command guards built in.</p>
+            </div>
+            <div class="card">
+              <span class="ico">mcp</span>
+              <h3>MCP, skills &amp; commands</h3>
+              <p>Connect local or remote MCP servers, load <code>SKILL.md</code> workflows, and turn Markdown files into <code>/review</code>-style commands.</p>
+            </div>
+            <div class="card">
+              <span class="ico">agents</span>
+              <h3>Plan mode &amp; subagents</h3>
+              <p>Switch to a read-only <code>plan</code> agent, or delegate focused work to <code>explore</code> and custom subagents with their own tools and model.</p>
             </div>
             <div class="card">
               <span class="ico">models</span>
@@ -575,6 +585,8 @@ chan models</pre>
   config.js             config merge, presets, secrets
   providers/            openai.js · anthropic.js
   tools/                read write edit bash glob grep ...
+  mcp/                  MCP stdio / HTTP clients
+  skills/ commands/ agents/   extensions
   server/               HTTP + SSE API and web UI
   cli/                  REPL, one-shot runs, commands
 test/                   node:test suites (no network needed)</pre>
@@ -585,8 +597,12 @@ test/                   node:test suites (no network needed)</pre>
 ▶ providers ......... 7 passing
 ▶ agent ............. 7 passing
 ▶ sessions .......... 5 passing
-▶ server ............ 11 passing
-▶ palette ........... 3 passing</pre>
+▶ server ............ 13 passing
+▶ palette ........... 3 passing
+▶ mcp ............... 4 passing
+▶ skills ............ 4 passing
+▶ commands .......... 4 passing
+▶ agents ............ 4 passing</pre>
           </div>
         </section>
       </main>

@@ -42,8 +42,22 @@ chan config edit      # 用 $EDITOR / notepad 打开
     "commandTimeoutMs": 120000,
     "maxOutputChars": 20000,
     "temperature": 0.2,
-    "systemPrompt": ""
+    "systemPrompt": "",
+    "defaultAgent": "build"
   },
+  "mcp": {
+    "timeoutMs": 30000,
+    "servers": {
+      "context7": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp",
+        "headers": { "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}" }
+      }
+    }
+  },
+  "skills": { "dirs": [] },
+  "commands": { "dirs": [] },
+  "agents": { "dirs": [] },
   "server": {
     "host": "127.0.0.1",
     "port": 4731,
@@ -117,6 +131,32 @@ chan config set providers.claude-gw.apiKey=sk-ant-...
 | `maxOutputChars` | 20000 | 单个工具结果返回给模型的最大字符数 |
 | `temperature` | 0.2 | 采样温度 |
 | `systemPrompt` | "" | 追加到系统提示前的自定义指令 |
+| `defaultAgent` | build | 新会话默认 Agent（build / plan / 自定义） |
+
+## mcp.*
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `timeoutMs` | 30000 | MCP 初始化、工具列表与调用超时 |
+| `servers.<name>.type` | 自动推断 | `local` 或 `remote` |
+| `servers.<name>.command` | — | local：可执行文件 + 参数数组 |
+| `servers.<name>.cwd` | workspace | local 工作目录 |
+| `servers.<name>.environment` | {} | local 环境变量 |
+| `servers.<name>.url` | — | remote 端点（Streamable HTTP） |
+| `servers.<name>.headers` | {} | remote 请求头，支持 `{env:NAME}` |
+| `servers.<name>.disabled` | false | 跳过该服务器 |
+
+工具以 `<server>_<tool>` 命名。详见 [EXTENSIONS.md](EXTENSIONS.md#1-mcpmodel-context-protocol)。
+
+## skills.* / commands.* / agents.*
+
+| 字段 | 说明 |
+| --- | --- |
+| `skills.dirs` | 额外技能目录（相对 workspace；支持 `~/`） |
+| `commands.dirs` | 额外命令目录 |
+| `agents.dirs` | 额外 Agent 目录 |
+
+默认目录还包括项目内 `.chan/skills`、`.chan/commands`、`.chan/agents`，全局 `~/.chan_code/*`，以及兼容的 `.claude/*`、`.agents/*`。
 
 ## server.*
 
@@ -138,6 +178,7 @@ chan config set providers.claude-gw.apiKey=sk-ant-...
 | `CHAN_PORT` / `CHAN_HOST` | Web 服务监听地址 |
 | `CHAN_TOKEN` | Web 服务 Token |
 | `CHAN_APPROVAL` | auto / ask / deny |
+| `CHAN_AGENT` | 默认 Agent（build / plan / 自定义） |
 | `CHAN_MAX_STEPS` | 步数上限 |
 | `CHAN_SHELL` | bash 工具使用的 shell |
 | `NO_COLOR` | 关闭终端颜色 |

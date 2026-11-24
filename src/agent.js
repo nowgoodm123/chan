@@ -1,8 +1,10 @@
 import os from 'node:os';
+import { formatAgentsForPrompt } from './agents.js';
+import { formatSkillsForPrompt } from './skills.js';
 import { toolDefinitions } from './tools/index.js';
 import { safeJsonParse, truncate } from './util/text.js';
 
-export function buildSystemPrompt({ cwd, custom = '', platform = process.platform } = {}) {
+export function buildSystemPrompt({ cwd, custom = '', platform = process.platform, skills = [], agents = [] } = {}) {
   const shell = platform === 'win32' ? 'PowerShell' : 'bash';
   const date = new Date().toISOString().slice(0, 10);
   const base = [
@@ -22,7 +24,12 @@ export function buildSystemPrompt({ cwd, custom = '', platform = process.platfor
     '- Never print or commit secrets. Treat files outside the workspace carefully.',
     '- Keep prose short. Reference code as path:line. Do not add comments unless they add real value.',
   ].join('\n');
-  return custom && custom.trim() ? `${custom.trim()}\n\n---\n\n${base}` : base;
+  let prompt = custom && custom.trim() ? `${custom.trim()}\n\n---\n\n${base}` : base;
+  const skillSection = formatSkillsForPrompt(skills);
+  if (skillSection) prompt += `\n\n${skillSection}`;
+  const agentSection = formatAgentsForPrompt(agents);
+  if (agentSection) prompt += `\n\n${agentSection}`;
+  return prompt;
 }
 
 function toolSignature(name, args) {

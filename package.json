@@ -1,6 +1,6 @@
 {
   "name": "chan-code",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "chan_code - an open-source AI coding agent for the terminal and the browser. Zero dependencies.",
   "keywords": [
     "ai",

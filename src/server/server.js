@@ -5,10 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildSystemPrompt, runAgent } from '../agent.js';
+import { runAgent } from '../agent.js';
+import { loadAgents } from '../agents.js';
+import { expandCommand, loadCommands } from '../commands.js';
 import { deepMerge, listProviders, loadConfig, redactConfig, saveConfig } from '../config.js';
+import { createMcpManager } from '../mcp/index.js';
 import { createProvider } from '../providers/index.js';
+import { createRuntime } from '../runtime.js';
 import { SessionStore } from '../sessions.js';
+import { loadSkills } from '../skills.js';
 import { createTools } from '../tools/index.js';
 import { sanitizeFilename } from '../util/paths.js';
 import { titleFromPrompt } from '../util/text.js';
@@ -101,10 +106,12 @@ function parseDataUrl(dataUrl) {
 }
 
 export class ChanServer {
-  constructor({ cwd = process.cwd(), config = null, providerFactory = createProvider } = {}) {
+  constructor({ cwd = process.cwd(), config = null, providerFactory = createProvider, mcpManager = null } = {}) {
     this.cwd = path.resolve(cwd);
     this.config = config || loadConfig({ cwd: this.cwd });
     this.providerFactory = providerFactory;
+    this.mcpManager = mcpManager;
+    this.mcpInit = null;
     this.store = new SessionStore({ cwd: this.cwd });
     this.sessions = new Map();
     this.inFlight = new Set();
@@ -136,6 +143,33 @@ export class ChanServer {
     const loaded = this.store.get(id);
     if (loaded) this.sessions.set(id, loaded);
     return loaded || null;
+  }
+
+  ensureMcp() {
+    if (!this.mcpManager) {
+      this.mcpManager = createMcpManager({
+        config: this.config,
+        cwd: this.cwd,
+        logger: process.env.CHAN_DEBUG ? (message) => console.error(`[mcp] ${message}`) : null,
+      });
+    }
+    if (!this.mcpInit) this.mcpInit = this.mcpManager.ready();
+    return this.mcpInit;
+  }
+
+  async resetMcp() {
+    if (this.mcpManager) await this.mcpManager.close().catch(() => {});
+    this.mcpManager = null;
+    this.mcpInit = null;
+  }
+
+  requestCwd(url, body = null) {
+    const candidate = body?.cwd || url.searchParams.get('cwd');
+    if (candidate && fs.existsSync(String(candidate))) {
+      const resolved = path.resolve(String(candidate));
+      if (fs.statSync(resolved).isDirectory()) return resolved;
+    }
+    return this.cwd;
   }
 
   persist(session) {
@@ -240,6 +274,7 @@ export class ChanServer {
       if (!body || typeof body !== 'object') throw Object.assign(new Error('config must be an object'), { statusCode: 400 });
       this.config = deepMerge(this.config, body);
       saveConfig(this.config);
+      await this.resetMcp();
       return json(res, 200, { ok: true, config: redactConfig(this.config) });
     }
 
@@ -249,6 +284,35 @@ export class ChanServer {
 
     if (pathname === '/api/tools' && method === 'GET') {
       return json(res, 200, { tools: createTools({ cwd: this.cwd }).map(({ name, description, parameters }) => ({ name, description, parameters })) });
+    }
+
+    if (pathname === '/api/mcp' && method === 'GET') {
+      await this.ensureMcp();
+      return json(res, 200, { servers: this.mcpManager.statusesList(), tools: this.mcpManager.tools().map(({ name, description }) => ({ name, description })) });
+    }
+
+    if (pathname === '/api/mcp/refresh' && method === 'POST') {
+      await this.ensureMcp();
+      const servers = await this.mcpManager.refresh();
+      return json(res, 200, { servers, tools: this.mcpManager.tools().map(({ name, description }) => ({ name, description })) });
+    }
+
+    if (pathname === '/api/skills' && method === 'GET') {
+      const cwd = this.requestCwd(url);
+      const skills = loadSkills({ cwd, config: this.config }).map(({ body, ...skill }) => ({ ...skill, bytes: body.length }));
+      return json(res, 200, { cwd, skills });
+    }
+
+    if (pathname === '/api/commands' && method === 'GET') {
+      const cwd = this.requestCwd(url);
+      const commands = loadCommands({ cwd, config: this.config });
+      return json(res, 200, { cwd, commands });
+    }
+
+    if (pathname === '/api/agents' && method === 'GET') {
+      const cwd = this.requestCwd(url);
+      const agents = [...loadAgents({ cwd, config: this.config }).values()].map(({ system, ...agent }) => agent);
+      return json(res, 200, { cwd, agents, defaultAgent: this.config.agent.defaultAgent || 'build' });
     }
 
     if (pathname === '/api/sessions' && method === 'GET') {
@@ -266,6 +330,7 @@ export class ChanServer {
         provider: body.provider || this.config.defaultProvider,
         model: body.model || null,
         approval: body.approval || this.config.agent.approval,
+        agent: body.agent || this.config.agent.defaultAgent || 'build',
       });
       this.sessions.set(session.id, session);
       return json(res, 201, { session });
@@ -291,6 +356,7 @@ export class ChanServer {
         if (typeof body.provider === 'string' && body.provider.trim()) session.provider = body.provider.trim();
         if (typeof body.model === 'string' && body.model.trim()) session.model = body.model.trim();
         if (typeof body.approval === 'string' && ['auto', 'ask', 'deny'].includes(body.approval)) session.approval = body.approval;
+        if (typeof body.agent === 'string' && body.agent.trim()) session.agent = body.agent.trim();
         this.persist(session);
         return json(res, 200, { ok: true, session });
       }
@@ -326,23 +392,53 @@ export class ChanServer {
       return json(res, 409, { error: 'this session is already processing a message' });
     }
     const body = await readBody(req);
-    const text = typeof body.message === 'string' ? body.message.trim() : '';
+    let text = typeof body.message === 'string' ? body.message.trim() : '';
     const images = Array.isArray(body.images) ? body.images : [];
-    if (!text && !images.length) {
-      return json(res, 400, { error: 'message or images are required' });
-    }
     if (text.length > 200000) {
       return json(res, 400, { error: 'message too long' });
     }
 
-    const providerName = body.provider || session.provider || this.config.defaultProvider;
+    let commandMeta = null;
+    if (text.startsWith('/')) {
+      const name = text.slice(1).split(/\s+/)[0].toLowerCase();
+      const command = loadCommands({ cwd: session.cwd, config: this.config }).find((item) => item.name.toLowerCase() === name);
+      if (command) {
+        commandMeta = command;
+        text = await expandCommand(command, text.slice(1 + name.length).trim(), { cwd: session.cwd });
+      }
+    }
+    if (!text && !images.length) {
+      return json(res, 400, { error: 'message or images are required' });
+    }
+
+    let providerName = body.provider || session.provider || this.config.defaultProvider;
+    let modelOverride = body.model ? String(body.model) : commandMeta?.model || null;
+    if (modelOverride && modelOverride.includes('/')) {
+      const slash = modelOverride.indexOf('/');
+      const prefix = modelOverride.slice(0, slash);
+      if (this.config.providers?.[prefix]) {
+        providerName = prefix;
+        modelOverride = modelOverride.slice(slash + 1);
+      }
+    }
+
+    let providerConfig = this.config;
+    if (modelOverride) {
+      providerConfig = structuredClone(this.config);
+      providerConfig.providers[providerName] = {
+        ...(providerConfig.providers[providerName] || {}),
+        model: modelOverride,
+      };
+    }
+
     let provider;
     try {
-      provider = this.providerFactory(this.config, providerName);
+      provider = this.providerFactory(providerConfig, providerName);
     } catch (err) {
       return json(res, 400, { error: err.message });
     }
-    if (body.model) provider.model = String(body.model);
+
+    const agentName = body.agent || commandMeta?.agent || session.agent || this.config.agent.defaultAgent || 'build';
 
     this.inFlight.add(session.id);
     const abort = new AbortController();
@@ -395,7 +491,8 @@ export class ChanServer {
     };
 
     session.provider = providerName;
-    session.model = provider.model;
+    session.model = modelOverride || provider.model;
+    session.agent = agentName;
 
     const normalizedImages = [];
     for (const image of images.slice(0, 8)) {
@@ -425,35 +522,56 @@ export class ChanServer {
       sessionId: session.id,
       title: session.title,
       provider: providerName,
-      model: provider.model,
+      model: session.model,
+      agent: agentName,
       approval: approvalMode,
+      command: commandMeta?.name || null,
     });
-
-    const tools = createTools({
-      cwd: session.cwd,
-      config: this.config.agent,
-      session,
-      approve,
-      signal: abort.signal,
-      approvalMode,
-    });
-    const system = buildSystemPrompt({ cwd: session.cwd, custom: this.config.agent.systemPrompt });
 
     try {
-      const stream = runAgent({
-        provider,
-        messages: session.messages,
-        system,
-        tools,
-        maxSteps: body.maxSteps || this.config.agent.maxSteps,
-        temperature: this.config.agent.temperature,
-        signal: abort.signal,
+      await this.ensureMcp();
+      for (const status of this.mcpManager.statusesList()) {
+        if (!status.connected) send('warning', { message: `MCP server "${status.name}" failed: ${status.error}` });
+      }
+      const runtime = await createRuntime({
+        cwd: session.cwd,
+        config: this.config,
         session,
-        maxOutputChars: this.config.agent.maxOutputChars,
+        provider,
+        providerName,
+        approvalMode,
+        approve,
+        signal: abort.signal,
+        mcpManager: this.mcpManager,
+        agentName,
       });
-      for await (const event of stream) {
-        send(event.type, event);
-        if (['assistant', 'tool-result', 'warning', 'done'].includes(event.type)) this.persist(session);
+
+      if (commandMeta?.subagent && runtime.runSubagent) {
+        const output = await runtime.runSubagent({
+          agent: commandMeta.agent || 'general',
+          prompt: text,
+          model: commandMeta.model || undefined,
+        });
+        const message = { role: 'assistant', content: output };
+        session.messages.push(message);
+        send('text-delta', { type: 'text-delta', text: output });
+        send('assistant', { type: 'assistant', message, step: 1, usage: null, totalUsage: session.usage || {} });
+      } else {
+        const stream = runAgent({
+          provider,
+          messages: session.messages,
+          system: runtime.system,
+          tools: runtime.tools,
+          maxSteps: body.maxSteps || this.config.agent.maxSteps,
+          temperature: this.config.agent.temperature,
+          signal: abort.signal,
+          session,
+          maxOutputChars: this.config.agent.maxOutputChars,
+        });
+        for await (const event of stream) {
+          send(event.type, event);
+          if (['assistant', 'tool-result', 'warning', 'done'].includes(event.type)) this.persist(session);
+        }
       }
       this.persist(session);
       send('session', { session: this.publicSession(session) });
@@ -491,10 +609,11 @@ export class ChanServer {
     });
   }
 
-  close() {
+  async close() {
     for (const pending of this.pendingApprovals.values()) pending.resolve({ approved: false, reason: 'server closing' });
     this.pendingApprovals.clear();
-    return new Promise((resolve) => this.server.close(resolve));
+    if (this.mcpManager) await this.mcpManager.close().catch(() => {});
+    await new Promise((resolve) => this.server.close(resolve));
   }
 }
 

@@ -2,6 +2,18 @@
 
 All notable changes to chan_code are documented here.
 
+## [0.2.0] - 2026-11-24
+
+### Added
+
+- MCP support: local stdio and remote Streamable HTTP servers, tool discovery, `chan mcp`, `/mcps`, and `/api/mcp`.
+- Skills: `SKILL.md` discovery from `.chan/skills`, `~/.chan_code/skills`, `.claude` and `.agents`, plus a `skill` tool.
+- Custom commands: Markdown templates with `$ARGUMENTS` / positional args, shell interpolation, agent/model overrides and `subagent: true`.
+- Agents: built-in `build` / `plan` / `explore` / `general`, custom agent files, `/agent`, and a `subagent` tool with one level of nesting.
+- Extension HTTP endpoints: `/api/mcp`, `/api/mcp/refresh`, `/api/skills`, `/api/commands`, `/api/agents`.
+- New tests for MCP, skills, commands, agents/runtime, extension endpoints and MCP tool calls (72 total).
+- Docs: `docs/EXTENSIONS.md`; updated configuration, tools, API, architecture and roadmap.
+
 ## [0.1.0] - 2026-11-23
 
 ### Added

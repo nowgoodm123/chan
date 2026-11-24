@@ -80,6 +80,20 @@ while (steps < maxSteps) {
 
 终端直接消费这些事件渲染；服务端把它们编码成 SSE 转发给浏览器。
 
+## 扩展运行时（runtime）
+
+`src/runtime.js` 在每次对话前组装：
+
+1. `loadSkills()` 扫描 `.chan/skills`、全局目录与兼容目录；
+2. `loadAgents()` 加载内置 build/plan/explore/general 与自定义 Agent；
+3. `McpManager.ready()` 返回已连接的 MCP 工具适配器；
+4. `createTools()` 合并 base 工具、`skill`、`subagent` 与 MCP 工具（按 Agent 的 `tools` 白名单过滤 base 工具）；
+5. `buildSystemPrompt()` 追加技能与可用子 Agent 列表。
+
+主 Agent 通过 `subagent` 工具调用 `createRuntime()` 创建子运行时：使用子会话、独立 messages、子 Agent 的工具白名单与模型，`depth=1` 时不再注入 `subagent` 工具，从而限制嵌套。子 Agent 的事件不流式转发，只把最终文本与步数/工具数汇总回父会话。
+
+MCP 管理器（`src/mcp/`）在 CLI 启动或 Web 首次对话时初始化，连接失败只记录状态，不影响 Agent 启动；`/mcps refresh` 或 `POST /api/mcp/refresh` 可重建连接。
+
 ## 流式协议解析
 
 `src/util/sse.js` 自己实现 SSE 分帧（不依赖库），正确处理：
@@ -134,6 +148,8 @@ const info = await server.listen({ port: 4731, host: '127.0.0.1' });
 | --- | --- |
 | 新 Provider 协议 | `src/providers/`，实现 `stream()` 异步生成器 |
 | 新工具 | `src/tools/<name>.js` + 在 `ALL_TOOLS` 注册 |
+| 新扩展类型 | 参考 `src/skills.js` / `src/commands.js` / `src/agents.js`，在 `createRuntime` 组装 |
+| 新 MCP 传输 | 实现 `src/mcp/client.js` 的 `start/initialize/listTools/callTool/close` |
 | 新 CLI 命令 | `src/cli/main.js` 的命令表与处理函数 |
 | 新 Web 接口 | `src/server/server.js` 的 `handleApi` |
 | 新会话字段 | `src/sessions.js`（注意图片落盘策略） |

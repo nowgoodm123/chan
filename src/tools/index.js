@@ -4,6 +4,8 @@ import { globTool } from './glob.js';
 import { grepTool } from './grep.js';
 import { listTool } from './list.js';
 import { readTool } from './read.js';
+import { createSkillTool } from './skill.js';
+import { subagentTool } from './subagent.js';
 import { todoReadTool, todoWriteTool } from './todo.js';
 import { webfetchTool } from './webfetch.js';
 import { writeTool } from './write.js';
@@ -29,9 +31,17 @@ export function createTools({
   signal = null,
   enabled = null,
   approvalMode = null,
+  skills = null,
+  runSubagent = null,
+  extraTools = [],
 } = {}) {
   const selected = enabled ? ALL_TOOLS.filter((tool) => enabled.includes(tool.name)) : ALL_TOOLS;
-  return selected.map((tool) => ({
+  const dynamic = [];
+  if (skills?.length) dynamic.push(createSkillTool(skills));
+  if (typeof runSubagent === 'function') dynamic.push(subagentTool);
+  dynamic.push(...(extraTools || []));
+  const all = [...selected, ...dynamic];
+  return all.map((tool) => ({
     name: tool.name,
     description: tool.description,
     parameters: tool.parameters,
@@ -41,6 +51,8 @@ export function createTools({
         session,
         approve,
         signal,
+        runSubagent,
+        skills,
         approvalMode: approvalMode || config.approval || 'auto',
         allowOutsideWorkspace: Boolean(config.allowOutsideWorkspace),
         allowDangerous: Boolean(config.allowDangerous),

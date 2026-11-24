@@ -6,11 +6,12 @@
 
 - 终端 REPL、一次性任务、Web UI 三种入口；
 - OpenAI 兼容与 Anthropic 两种协议，流式、工具调用、视觉输入；
-- 10 个工具、路径安全、危险命令审批、循环检测；
+- 10 个 base 工具、路径安全、危险命令审批、循环检测；
+- MCP（local / remote）、Skills、自定义命令、自定义 Agent 与子 Agent；
 - 会话持久化与跨入口恢复；
 - HTTP + SSE API、Token 鉴权、上传；
 - Windows / macOS / Linux 安装脚本；
-- 离线测试与介绍网站。
+- 72 个离线测试与介绍网站。
 
 ## 平台支持
 
@@ -39,9 +40,9 @@
 
 ## 中期（v0.3）
 
-- [ ] MCP（Model Context Protocol）客户端：接入外部工具服务器
-- [ ] 子 Agent / 并行任务（只读探查、代码审查）
-- [ ] 自定义命令（项目内 pre/post hook、技能文件）
+- [x] MCP（Model Context Protocol）客户端：接入外部工具服务器（local / remote）
+- [x] 子 Agent / 只读探查 Agent（并行执行待实现）
+- [x] 自定义命令与 Skills（.chan/commands、.chan/skills）
 - [ ] 审批规则：命令前缀白名单、按路径授权
 - [ ] 代码索引（本地符号搜索）以降低 grep 成本
 - [ ] 环境变量与密钥的独立密钥库（OS keychain）

@@ -105,6 +105,18 @@
 
 ---
 
+## 动态工具
+
+以下工具按扩展配置动态出现：
+
+| 工具 | 来源 | 说明 |
+| --- | --- | --- |
+| `skill` | `.chan/skills` 等 | 参数 `{ "id": "skill-id" }`，加载技能正文、目录与附带文件列表 |
+| `subagent` | 内置 Agent 注册表 | 参数 `{ "agent": "explore", "prompt": "...", "model"?: "..." }`，在独立上下文运行子 Agent |
+| `<server>_<tool>` | MCP 配置 | 由 MCP Server 声明的工具，参数遵循其 `inputSchema` |
+
+`skill` 与 `subagent` 不受 Agent 的 base 工具白名单影响；MCP 工具同样直接追加。详见 [EXTENSIONS.md](EXTENSIONS.md)。
+
 ## 工具实现约定（扩展开发）
 
 在 `src/tools/<name>.js` 中导出：
