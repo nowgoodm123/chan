@@ -311,6 +311,7 @@ GET /api/agents?cwd=<workspace>
 2. 自定义命令中的 shell 插值不受审批保护，代码审查时重点检查。
 3. 子 Agent 与 MCP 工具最终仍由你在 `auto/ask/deny` 模式下控制 bash 审批。
 4. 远程 MCP 优先使用 Header 传递 API key，不要把密钥写入仓库配置。
+5. 使用 `permissions` 规则限制工具、路径、命令与 MCP 工具；详见 [PERMISSIONS.md](PERMISSIONS.md)。MCP 工具的动作名就是其暴露名（如 `context7_resolve_library_id`）。
 
 ## 验证
 

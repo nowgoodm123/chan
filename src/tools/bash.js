@@ -81,7 +81,11 @@ export const bashTool = {
 
     const danger = findDangerousCommand(command);
     const approvalMode = ctx.approvalMode || 'auto';
-    const needsApproval = approvalMode === 'ask' || approvalMode === 'deny' || Boolean(danger && !ctx.allowDangerous);
+    const ruleApproved = ctx.permissionApproved === true;
+    const needsApproval =
+      approvalMode === 'deny' ||
+      (approvalMode === 'ask' && !ruleApproved) ||
+      Boolean(danger && !ctx.allowDangerous && !ruleApproved);
     if (needsApproval) {
       if (typeof ctx.approve === 'function') {
         const decision = await ctx.approve({
@@ -90,6 +94,8 @@ export const bashTool = {
           danger,
           mode: approvalMode,
           requiresConfirmation: approvalMode !== 'auto' || Boolean(danger),
+          reason: danger ? 'dangerous command' : 'approval mode',
+          permission: { action: 'shell', resource: command, effect: 'allow' },
         });
         if (!decision?.approved) {
           const reason = decision?.reason || 'the user did not approve this command';
@@ -99,6 +105,8 @@ export const bashTool = {
         throw new Error(`command blocked: ${danger}. Set agent.allowDangerous=true to permit it.`);
       } else if (approvalMode === 'deny') {
         return 'Command refused: approval mode is deny.';
+      } else {
+        return 'Command refused: approval is required but no approval handler is available.';
       }
     }
 

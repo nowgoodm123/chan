@@ -113,6 +113,8 @@ OpenAI 工具调用按 `index` 聚合 `id`、`name`、`arguments` 增量；Anthr
 - 标题：首条用户消息截断生成。
 - 图片：上传文件保存在 `<workspace>/.chan/uploads`，会话落盘时剥离 `dataUrl`，只存 `path`；加载时从磁盘回填 base64，避免会话文件膨胀。
 - 恢复：`chan --resume <id>`、REPL `/resume <id>`、Web 侧边栏点击。
+- 会话工具（`src/session-tools.js`）：fork 复制消息与 todos、Markdown/JSON 导出、调用当前模型把历史压缩为摘要。
+- Web 与 API 提供 fork / export / compact；CLI 通过 `/session fork|export|compact` 使用。
 
 ## 审批与安全
 
@@ -122,8 +124,10 @@ OpenAI 工具调用按 `index` 聚合 `id`、`name`、`arguments` 增量；Anthr
 - `ask`：所有 bash 都审批。
 - `deny`：bash 直接拒绝。
 
-CLI：通过同一个 readline 接口询问 `approve ...? [y/N]`。
-Web：SSE 下发 `approval-request`，浏览器 POST `/api/approve`，服务端用 `callId` 匹配 Promise 并在 5 分钟超时后默认拒绝。
+在上述审批模式之前还有一层权限规则（`src/permissions.js`）：按 action/resource 匹配 `allow` / `ask` / `deny`，最后匹配生效；`ask` 会渲染为同一种审批请求。工具包装层（`createTools`）统一执行规则，bash 用 `permissionApproved` 避免重复询问。
+
+CLI：通过同一个 readline 接口询问 `approve ...? [y/N/a=always]`。
+Web：SSE 下发 `approval-request`，浏览器 POST `/api/approve`，服务端用 `callId` 匹配 Promise 并在 5 分钟超时后默认拒绝；`remember: true` 会把 `permission` 写入配置。
 
 路径安全由 `resolveWorkspacePath` 统一保证（大小写不敏感的 Windows 也能正确处理）。
 

@@ -163,6 +163,36 @@ Authorization: Bearer <token>
 { "ok": true }
 ```
 
+## POST /api/sessions/:id/fork
+
+```json
+{ "beforeIndex": 4, "title": "实验分支" }
+```
+
+两个字段都可选；`beforeIndex` 表示只复制前 N 条消息。返回 201：
+
+```json
+{ "session": { "id": "uuid", "title": "实验分支", "messages": [], "todos": [] } }
+```
+
+## GET /api/sessions/:id/export
+
+`?format=markdown`（默认）或 `format=json`。响应带 `Content-Disposition: attachment`，可直接下载。
+
+## POST /api/sessions/:id/compact
+
+用当前（或指定的）模型把会话压缩为摘要，替换历史消息，保留目标、决策、文件路径、测试结果与未完成任务。
+
+```json
+{ "provider": "deepseek", "model": "deepseek-chat" }
+```
+
+```json
+{ "summary": "…", "session": { "id": "uuid", "messages": [] } }
+```
+
+会话正在生成时返回 409。
+
 ## POST /api/sessions/:id/chat
 
 核心接口，以 SSE 流式返回 Agent 事件。
@@ -218,7 +248,7 @@ event: end
 data: {"sessionId":"...","usage":{...}}
 ```
 
-可能出现的其他事件：`reasoning-delta`、`assistant`、`warning`、`error`、`aborted`。
+可能出现的其他事件：`reasoning-delta`、`assistant`、`warning`、`error`、`aborted`。`approval-request` 可能包含 `permission`，用于“始终允许”。
 
 错误状态码：
 
@@ -256,10 +286,12 @@ while (true) {
 ## POST /api/approve
 
 ```json
-{ "callId": "uuid", "approved": true }
+{ "callId": "uuid", "approved": true, "remember": false }
 ```
 
-未知或过期的 callId 返回 404。
+- `remember: true` 会把请求中的权限建议保存为全局 `permissions` 规则（`approval-request` 事件里的 `permission` 字段）。
+- 响应：`{ "ok": true, "remembered": true, "rule": "shell git status * -> allow" }`。
+- 未知或过期的 callId 返回 404。
 
 ## POST /api/upload
 

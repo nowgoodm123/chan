@@ -155,4 +155,5 @@ export const myTool = {
 | 命令超时与进程树清理 | `src/tools/bash.js` |
 | 输出截断 | `agent.maxOutputChars` |
 | 循环检测（相同调用 3 次） | `src/agent.js` |
+| 权限规则（allow/ask/deny） | `src/permissions.js` + `createTools` 包装层 |
 | 上传类型/大小 | `src/server/server.js` |

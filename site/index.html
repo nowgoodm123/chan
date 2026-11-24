@@ -417,7 +417,7 @@
             <div class="terminal-body"><span class="c-dim">PS D:\work\app&gt;</span> <span class="c-accent">chan</span>
 
 <span class="c-dim">╭──────────────────────────────────────────────────────────────╮
-│ chan_code v0.2.0 · open-source AI coding agent               │
+│ chan_code v0.3.0 · open-source AI coding agent               │
 │ provider: deepseek   model: deepseek-chat                    │
 │ workspace: D:\work\app   approval: auto                      │
 ╰──────────────────────────────────────────────────────────────╯</span>
@@ -474,12 +474,12 @@ failure path in <span class="c-amber">src/routes/upload.test.ts</span>. All test
             <div class="card">
               <span class="ico">sessions</span>
               <h3>Persistent sessions</h3>
-              <p>Conversations, todos and token usage are saved per workspace. Resume from the CLI or the browser.</p>
+              <p>Conversations, todos and usage are saved per workspace. Fork a session, export Markdown or JSON, compact context, then resume from the CLI or browser.</p>
             </div>
             <div class="card">
               <span class="ico">safe</span>
               <h3>You stay in control</h3>
-              <p>Approval modes: auto, ask before risky commands, or deny shell access. Token-protected web server, local-only by default.</p>
+              <p>Allow / ask / deny rules per command, path, URL or tool, with always-allow. Approval modes, token-protected server and local-only defaults.</p>
             </div>
           </div>
         </section>
@@ -593,16 +593,17 @@ test/                   node:test suites (no network needed)</pre>
             <pre class="code">npm test
 
 ▶ config ............ 10 passing
-▶ tools ............. 11 passing
+▶ tools ............. 13 passing
 ▶ providers ......... 7 passing
 ▶ agent ............. 7 passing
 ▶ sessions .......... 5 passing
-▶ server ............ 13 passing
+▶ server ............ 16 passing
 ▶ palette ........... 3 passing
 ▶ mcp ............... 4 passing
 ▶ skills ............ 4 passing
 ▶ commands .......... 4 passing
-▶ agents ............ 4 passing</pre>
+▶ agents ............ 4 passing
+▶ permissions ....... 5 passing</pre>
           </div>
         </section>
       </main>

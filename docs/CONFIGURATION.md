@@ -58,6 +58,10 @@ chan config edit      # 用 $EDITOR / notepad 打开
   "skills": { "dirs": [] },
   "commands": { "dirs": [] },
   "agents": { "dirs": [] },
+  "permissions": [
+    { "action": "shell", "resource": "git push *", "effect": "deny" },
+    { "action": "read", "resource": ".env", "effect": "ask" }
+  ],
   "server": {
     "host": "127.0.0.1",
     "port": 4731,
@@ -157,6 +161,16 @@ chan config set providers.claude-gw.apiKey=sk-ant-...
 | `agents.dirs` | 额外 Agent 目录 |
 
 默认目录还包括项目内 `.chan/skills`、`.chan/commands`、`.chan/agents`，全局 `~/.chan_code/*`，以及兼容的 `.claude/*`、`.agents/*`。
+
+## permissions.*
+
+| 字段 | 说明 |
+| --- | --- |
+| `action` | `read` / `edit` / `shell` / `webfetch` / `skill` / `subagent` / `*` / MCP 工具名 |
+| `resource` | 路径、命令、URL、skill id、agent 名；支持 `*`、`?` |
+| `effect` | `allow` / `ask` / `deny`，最后匹配的规则生效 |
+
+内置默认会对 `*.env` 读取询问。详细示例见 [PERMISSIONS.md](PERMISSIONS.md)。
 
 ## server.*
 

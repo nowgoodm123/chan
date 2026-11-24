@@ -133,7 +133,7 @@ export async function createRuntime({
 
   const tools = createTools({
     cwd,
-    config: { ...config.agent, approval: approvalMode },
+    config: { ...config.agent, approval: approvalMode, permissions: config.permissions || [] },
     session,
     approve,
     signal,

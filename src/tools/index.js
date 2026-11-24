@@ -1,3 +1,4 @@
+import { DEFAULT_PERMISSION_RULES, evaluatePermissions, permissionRequestForTool } from '../permissions.js';
 import { bashTool } from './bash.js';
 import { editTool } from './edit.js';
 import { globTool } from './glob.js';
@@ -41,25 +42,60 @@ export function createTools({
   if (typeof runSubagent === 'function') dynamic.push(subagentTool);
   dynamic.push(...(extraTools || []));
   const all = [...selected, ...dynamic];
+  const mode = approvalMode || config.approval || 'auto';
   return all.map((tool) => ({
     name: tool.name,
     description: tool.description,
     parameters: tool.parameters,
-    run: (args) =>
-      tool.run(args || {}, {
+    async run(args) {
+      const input = args || {};
+      const baseContext = {
         cwd,
         session,
         approve,
         signal,
         runSubagent,
         skills,
-        approvalMode: approvalMode || config.approval || 'auto',
+        approvalMode: mode,
         allowOutsideWorkspace: Boolean(config.allowOutsideWorkspace),
         allowDangerous: Boolean(config.allowDangerous),
         commandTimeoutMs: config.commandTimeoutMs,
         maxOutputChars: config.maxOutputChars,
         env: config.env,
-      }),
+        permissionApproved: false,
+      };
+
+      const request = permissionRequestForTool(tool.name, input, cwd);
+      let permissionApproved = false;
+      if (request) {
+        const decision = evaluatePermissions([...DEFAULT_PERMISSION_RULES, ...(config.permissions || [])], request.action, request.resource);
+        if (decision?.effect === 'deny') {
+          throw new Error(`Permission denied by rule: ${request.action} ${request.resource}`);
+        }
+        if (decision?.effect === 'ask') {
+          if (typeof approve !== 'function') {
+            throw new Error(`Approval required for ${request.action} ${request.resource}, but no approval handler is available`);
+          }
+          const answer = await approve({
+            tool: tool.name,
+            action: request.action,
+            resource: request.resource,
+            mode,
+            requiresConfirmation: true,
+            reason: 'permission rule',
+            permission: { action: request.action, resource: request.resource, effect: 'allow' },
+          });
+          if (!answer?.approved) {
+            throw new Error(`Permission denied: ${request.action} ${request.resource}`);
+          }
+          permissionApproved = true;
+        } else if (decision?.effect === 'allow') {
+          permissionApproved = true;
+        }
+      }
+
+      return tool.run(input, { ...baseContext, permissionApproved });
+    },
   }));
 }
 

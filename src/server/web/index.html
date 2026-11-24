@@ -33,6 +33,7 @@
             <div class="meta" id="session-meta">select a provider and start coding</div>
           </div>
           <div class="controls">
+            <select id="agent-select" title="Agent"></select>
             <select id="provider-select" title="Provider"></select>
             <input id="model-input" title="Model" placeholder="model" spellcheck="false" />
             <select id="approval-select" title="Approval mode">
@@ -40,6 +41,9 @@
               <option value="ask">ask before bash</option>
               <option value="deny">no bash</option>
             </select>
+            <button id="fork-btn" class="icon-btn" title="Fork this session">Fork</button>
+            <button id="export-btn" class="icon-btn" title="Export as Markdown">Export</button>
+            <button id="compact-btn" class="icon-btn" title="Compact conversation context">Compact</button>
             <button id="settings-btn" class="icon-btn" title="Settings">Settings</button>
           </div>
         </header>
@@ -61,6 +65,7 @@
         </section>
 
         <section class="composer">
+          <div class="slash-menu" id="slash-menu" hidden></div>
           <div class="attachments" id="attachments"></div>
           <div class="composer-row">
             <textarea id="input" rows="1" placeholder="Ask chan_code to build, debug, explain…"></textarea>

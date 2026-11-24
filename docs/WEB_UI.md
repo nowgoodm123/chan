@@ -22,12 +22,18 @@ chan serve --host 127.0.0.1
 ## 界面
 
 - **左侧栏**：新建会话、历史会话（按工作区隔离）、删除、切换主题、关于页入口。
-- **顶栏**：Provider 下拉、模型输入、审批模式、设置。
+- **顶栏**：Agent 选择（build / plan / 自定义）、Provider 下拉、模型输入、审批模式、Fork / Export / Compact、设置。
 - **消息区**：用户消息、Markdown 渲染的助手回复、可折叠的工具卡片（状态/参数/输出/耗时）。
-- **输入区**：图片 / 文件按钮、拖拽与粘贴上传、发送与停止。
+- **输入区**：图片 / 文件按钮、拖拽与粘贴上传、自定义命令快捷菜单、发送与停止。
 - **Settings**：默认 Provider、模型、Base URL、API Key、审批模式、最大步数、系统提示、工作目录、服务器 Token。
 
-快捷键：`Enter` 发送，`Shift+Enter` 换行，`Ctrl/Cmd+N` 新建会话。
+快捷键：`Enter` 发送，`Shift+Enter` 换行，`Ctrl/Cmd+N` 新建会话。输入 `/` 会弹出当前工作区的自定义命令，支持上下键与 Tab/Enter 选择。
+
+会话操作：
+
+- **Fork**：复制当前会话（含消息与 todos）到新会话。
+- **Export**：下载 Markdown（可用 API 导出 JSON）。
+- **Compact**：调用模型把历史压缩为摘要，减少上下文占用。
 
 扩展在浏览器中同样生效：直接发送 `/review src/auth.ts` 会展开自定义命令；Agent 可以使用 `skill`、`subagent` 与已连接的 MCP 工具。MCP 状态可通过 `GET /api/mcp` 查看，或在终端执行 `chan mcp`。
 
@@ -62,10 +68,10 @@ chan serve --host 127.0.0.1
 ```text
 Approval required · recursive delete of root/home
 rm -rf build
-[Approve] [Deny]
+[Approve] [Always allow] [Deny]
 ```
 
-5 分钟未响应默认拒绝。`ask` 模式下所有 bash 命令都会询问，`deny` 模式下 bash 不可用。
+5 分钟未响应默认拒绝。`ask` 模式下所有 bash 命令都会询问，`deny` 模式下 bash 不可用。点击 **Always allow** 会把该操作保存为权限规则，详见 [PERMISSIONS.md](PERMISSIONS.md)。
 
 ## 设置模型
 

@@ -35,7 +35,15 @@ for (const [name, bin] of Object.entries(pkg.bin || {})) {
   if (!fs.existsSync(path.join(root, bin))) problems.push(`package.json bin "${name}" points to missing ${bin}`);
 }
 
-for (const required of ['README.md', 'LICENSE', 'site/index.html', 'docs/GETTING_STARTED.md', 'docs/CONFIGURATION.md', 'docs/EXTENSIONS.md']) {
+for (const required of [
+  'README.md',
+  'LICENSE',
+  'site/index.html',
+  'docs/GETTING_STARTED.md',
+  'docs/CONFIGURATION.md',
+  'docs/EXTENSIONS.md',
+  'docs/PERMISSIONS.md',
+]) {
   if (!fs.existsSync(path.join(root, required))) problems.push(`missing required file ${required}`);
 }
 

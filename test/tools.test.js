@@ -20,10 +20,13 @@ function workspace() {
 }
 
 function tools(cwd, overrides = {}) {
+  const { session = null, approve = null, signal = null, ...config } = overrides;
   const list = createTools({
     cwd,
-    config: { maxOutputChars: 20000, commandTimeoutMs: 30000, ...overrides },
-    session: overrides.session || null,
+    config: { maxOutputChars: 20000, commandTimeoutMs: 30000, ...config },
+    session,
+    approve,
+    signal,
   });
   return Object.fromEntries(list.map((tool) => [tool.name, tool]));
 }
@@ -142,6 +145,62 @@ test('todo tools update the session todo list', async () => {
   const read = await t.todo_read.run({});
   assert.match(read, /1 remaining \/ 2 total/);
   await assert.rejects(t.todo_write.run({ todos: [{ content: 'x', status: 'bogus' }] }), /invalid status/);
+});
+
+test('permission rules gate tools and can require approval', async () => {
+  const cwd = workspace();
+  fs.writeFileSync(path.join(cwd, 'secret.txt'), 'classified');
+  fs.writeFileSync(path.join(cwd, '.env'), 'API_KEY=1');
+
+  const denied = tools(cwd, { permissions: [{ action: 'read', resource: 'secret.txt', effect: 'deny' }] });
+  await assert.rejects(denied.read.run({ path: 'secret.txt' }), /Permission denied by rule/);
+
+  let approvals = 0;
+  const asking = tools(cwd, {
+    permissions: [{ action: 'read', resource: 'secret.txt', effect: 'ask' }],
+    approve: async (request) => {
+      approvals += 1;
+      assert.equal(request.action, 'read');
+      assert.equal(request.resource, 'secret.txt');
+      return { approved: true };
+    },
+  });
+  assert.match(await asking.read.run({ path: 'secret.txt' }), /classified/);
+  assert.equal(approvals, 1);
+
+  const rejecting = tools(cwd, {
+    permissions: [{ action: 'read', resource: 'secret.txt', effect: 'ask' }],
+    approve: async () => ({ approved: false }),
+  });
+  await assert.rejects(rejecting.read.run({ path: 'secret.txt' }), /Permission denied:/);
+
+  assert.match(await tools(cwd, { approve: async () => ({ approved: true }) }).read.run({ path: '.env' }), /API_KEY/);
+  await assert.rejects(tools(cwd).read.run({ path: '.env' }), /Approval required/);
+});
+
+test('shell permission rules can allow or deny commands', async () => {
+  const cwd = workspace();
+  const allowed = tools(cwd, {
+    approval: 'ask',
+    permissions: [{ action: 'shell', resource: 'node *', effect: 'allow' }],
+    approve: async () => {
+      throw new Error('approval should not be requested');
+    },
+  });
+  const output = await allowed.bash.run({ command: 'node -e "console.log(7)"' });
+  assert.match(output, /status: success/);
+  assert.match(output, /7/);
+
+  const denied = tools(cwd, {
+    permissions: [{ action: 'shell', resource: 'git push *', effect: 'deny' }],
+  });
+  await assert.rejects(denied.bash.run({ command: 'git push origin main' }), /Permission denied by rule/);
+
+  const askDenied = tools(cwd, {
+    permissions: [{ action: 'shell', resource: 'echo *', effect: 'ask' }],
+    approve: async () => ({ approved: false }),
+  });
+  await assert.rejects(askDenied.bash.run({ command: 'echo hi' }), /Permission denied: shell echo hi/);
 });
 
 test('webfetch converts HTML to text', async () => {

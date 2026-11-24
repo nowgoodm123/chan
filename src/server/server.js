@@ -10,8 +10,10 @@ import { loadAgents } from '../agents.js';
 import { expandCommand, loadCommands } from '../commands.js';
 import { deepMerge, listProviders, loadConfig, redactConfig, saveConfig } from '../config.js';
 import { createMcpManager } from '../mcp/index.js';
+import { addPermissionRule, describeRule } from '../permissions.js';
 import { createProvider } from '../providers/index.js';
 import { createRuntime } from '../runtime.js';
+import { compactSession, forkSession, sessionToJson, sessionToMarkdown } from '../session-tools.js';
 import { SessionStore } from '../sessions.js';
 import { loadSkills } from '../skills.js';
 import { createTools } from '../tools/index.js';
@@ -365,6 +367,57 @@ export class ChanServer {
         return this.handleChat(req, res, session);
       }
 
+      if (sub === '/fork' && method === 'POST') {
+        const body = await readBody(req);
+        const fork = forkSession(this.store, session, {
+          beforeIndex: body.beforeIndex ?? null,
+          title: typeof body.title === 'string' && body.title.trim() ? body.title.trim() : null,
+        });
+        this.sessions.set(fork.id, fork);
+        return json(res, 201, { session: fork });
+      }
+
+      if (sub === '/export' && method === 'GET') {
+        const format = (url.searchParams.get('format') || 'markdown').toLowerCase();
+        const body = format === 'json' ? sessionToJson(session) : sessionToMarkdown(session);
+        const filename = sanitizeFilename(`${session.title || session.id}.${format === 'json' ? 'json' : 'md'}`);
+        res.writeHead(200, {
+          'Content-Type': format === 'json' ? 'application/json; charset=utf-8' : 'text/markdown; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Cache-Control': 'no-store',
+        });
+        return res.end(body);
+      }
+
+      if (sub === '/compact' && method === 'POST') {
+        if (this.inFlight.has(session.id)) {
+          return json(res, 409, { error: 'this session is already processing a message' });
+        }
+        const body = await readBody(req);
+        const providerName = body.provider || session.provider || this.config.defaultProvider;
+        let providerConfig = this.config;
+        if (body.model) {
+          providerConfig = structuredClone(this.config);
+          providerConfig.providers[providerName] = {
+            ...(providerConfig.providers[providerName] || {}),
+            model: String(body.model),
+          };
+        }
+        let provider;
+        try {
+          provider = this.providerFactory(providerConfig, providerName);
+        } catch (err) {
+          return json(res, 400, { error: err.message });
+        }
+        try {
+          const summary = await compactSession({ provider, session });
+          this.persist(session);
+          return json(res, 200, { summary, session });
+        } catch (err) {
+          return json(res, 500, { error: err.message });
+        }
+      }
+
       return json(res, 404, { error: `unknown session action ${sub}` });
     }
 
@@ -380,8 +433,17 @@ export class ChanServer {
       const pending = this.pendingApprovals.get(body.callId);
       if (!pending) return json(res, 404, { error: 'approval request not found or expired' });
       this.pendingApprovals.delete(body.callId);
-      pending.resolve({ approved: Boolean(body.approved) });
-      return json(res, 200, { ok: true });
+      let remembered = false;
+      if (body.approved && body.remember && pending.permission) {
+        remembered = addPermissionRule(this.config, pending.permission);
+        if (remembered) saveConfig(this.config);
+      }
+      pending.resolve({ approved: Boolean(body.approved), remember: Boolean(body.remember) });
+      return json(res, 200, {
+        ok: true,
+        remembered,
+        rule: remembered ? describeRule(pending.permission) : null,
+      });
     }
 
     return json(res, 404, { error: `not found: ${pathname}` });
@@ -412,7 +474,7 @@ export class ChanServer {
     }
 
     let providerName = body.provider || session.provider || this.config.defaultProvider;
-    let modelOverride = body.model ? String(body.model) : commandMeta?.model || null;
+    let modelOverride = commandMeta?.model || (body.model ? String(body.model) : null);
     if (modelOverride && modelOverride.includes('/')) {
       const slash = modelOverride.indexOf('/');
       const prefix = modelOverride.slice(0, slash);
@@ -438,7 +500,8 @@ export class ChanServer {
       return json(res, 400, { error: err.message });
     }
 
-    const agentName = body.agent || commandMeta?.agent || session.agent || this.config.agent.defaultAgent || 'build';
+    const requestedAgent = body.agent ? String(body.agent) : null;
+    const agentName = commandMeta?.agent || requestedAgent || session.agent || this.config.agent.defaultAgent || 'build';
 
     this.inFlight.add(session.id);
     const abort = new AbortController();
@@ -482,6 +545,7 @@ export class ChanServer {
         }, 300000);
         this.pendingApprovals.set(callId, {
           sessionId: session.id,
+          permission: request.permission || null,
           resolve: (value) => {
             clearTimeout(timer);
             resolve(value);
@@ -492,7 +556,7 @@ export class ChanServer {
 
     session.provider = providerName;
     session.model = modelOverride || provider.model;
-    if (body.agent) session.agent = agentName;
+    if (requestedAgent) session.agent = requestedAgent;
     else if (!session.agent) session.agent = agentName;
 
     const normalizedImages = [];

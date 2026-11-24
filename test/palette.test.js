@@ -26,7 +26,7 @@ test('slashCompletions completes commands and arguments', () => {
   assert.ok(commands.includes('/config'));
 
   const [sessionSubs] = slashCompletions('/session ');
-  assert.deepEqual(sessionSubs, ['list', 'new', 'resume', 'delete', 'rename', 'show']);
+  assert.deepEqual(sessionSubs, ['list', 'new', 'resume', 'delete', 'fork', 'export', 'compact', 'rename', 'show']);
 
   const [providers] = slashCompletions('/connect de', { providers: ['deepseek', 'openai'] });
   assert.deepEqual(providers, ['deepseek']);

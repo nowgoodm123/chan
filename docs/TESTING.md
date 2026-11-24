@@ -20,10 +20,11 @@ node --test test/tools.test.js
 | `test/sessions.test.js` | 增删改查、工作区隔离、非法 id、图片 data URL 剥离与回填 |
 | `test/palette.test.js` | 斜杠命令列表、渲染与补全 |
 | `test/mcp.test.js` | MCP stdio/HTTP 连接、工具发现与调用、失败隔离、Session 头、SSE 响应 |
+| `test/permissions.test.js` | 通配匹配、最后规则生效、`.env` 默认规则、工具资源映射、保存规则 |
 | `test/skills.test.js` | frontmatter（含 BOM）、SKILL.md 发现、隐藏技能、skill 工具 |
 | `test/commands.test.js` | 命令发现与命名空间、参数替换、追加规则、shell 插值 |
 | `test/agents.test.js` | 内置/自定义 Agent、工具白名单、子 Agent 运行、嵌套限制 |
-| `test/server.test.js` | 健康检查、配置、会话 CRUD、SSE 聊天、输入校验、上传、静态资源、Token 鉴权、审批接口、扩展端点、MCP 工具调用 |
+| `test/server.test.js` | 健康检查、配置、会话 CRUD、SSE 聊天、输入校验、上传、静态资源、Token 鉴权、审批接口、扩展端点、MCP 工具调用、fork/export/compact、自定义命令展开 |
 
 ## 测试技巧
 

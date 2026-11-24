@@ -2,6 +2,19 @@
 
 All notable changes to chan_code are documented here.
 
+## [0.3.0] - 2026-11-24
+
+### Added
+
+- Fine-grained permission rules: `allow` / `ask` / `deny` by action and resource (paths, shell commands, URLs, skills, agents, MCP tools); last match wins; `.env` reads ask by default.
+- "Always allow" approvals in the CLI and web UI, saved to the global `permissions` config.
+- Session tools: fork (optionally before a message index), export to Markdown or JSON, and context compaction with the active model.
+- CLI: `/session fork|export|compact`, updated `/session` help and tab completion.
+- HTTP: `POST /api/sessions/:id/fork`, `GET /api/sessions/:id/export`, `POST /api/sessions/:id/compact`, and `remember` support in `/api/approve`.
+- Web UI: agent selector, custom command slash menu, Fork / Export / Compact buttons, "Always allow" approval action.
+- Docs: `docs/PERMISSIONS.md`; updated configuration, API, web UI, testing, extensions, tools and roadmap.
+- New tests for permissions and session tools (82 total).
+
 ## [0.2.0] - 2026-11-24
 
 ### Added

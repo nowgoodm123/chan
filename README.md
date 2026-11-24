@@ -19,10 +19,11 @@
 | 两种协议 | OpenAI `chat/completions` 与 Anthropic `messages`，均支持流式 + 工具调用 + 视觉输入 |
 | 真实工具 | `read` `write` `edit` `list` `glob` `grep` `bash` `webfetch` `todo_write` `todo_read` |
 | 扩展 | MCP Server（local / remote）、Skills、自定义命令、自定义 Agent 与子 Agent |
+| 权限 | 细粒度 `allow/ask/deny` 规则（路径、命令前缀、URL、工具），支持“始终允许”并保存 |
 | 安全 | 工作区路径约束、危险命令识别、`auto/ask/deny` 审批模式、Web 服务 Token、默认仅本机监听 |
-| 会话 | 按工作区保存到 `~/.chan_code/sessions`，可 `chan --resume <id>` 恢复 |
+| 会话 | 按工作区持久化，支持 fork、Markdown/JSON 导出、上下文压缩与恢复 |
 | 跨平台 | Windows（PowerShell）、macOS、Linux；纯 Node.js ESM，无第三方依赖 |
-| 可测试 | 72 个离线测试，覆盖配置、工具、Provider、Agent、MCP、Skills、Commands、子 Agent、HTTP/SSE 服务 |
+| 可测试 | 82 个离线测试，覆盖配置、权限、工具、Provider、Agent、MCP、Skills、Commands、子 Agent、HTTP/SSE 服务 |
 | 文档 | 完整使用、配置、工具、架构、API、测试文档 + 介绍网站 |
 
 ---
@@ -105,7 +106,7 @@ chan> 修复上传接口没有重试的问题，并补测试
 
 斜杠命令：在空提示符输入 `/` 会自动弹出命令面板；按 `Tab` 补全命令、子命令与 Provider 名。
 
-- `/session` — 会话管理：`list` / `new` / `resume <id>` / `delete <id>` / `rename <title>` / `show [id]`
+- `/session` — 会话管理：`list` / `new` / `resume <id>` / `delete <id>` / `fork [index]` / `export [path]` / `compact` / `rename <title>` / `show [id]`
 - `/connect` — 交互式连接模型：选择 Provider，填写 Base URL、模型、API Key，并写入配置
 - `/agent` — 切换主 Agent（`build` / `plan` / 自定义）；`/agents` 查看全部
 - `/skills` `/commands` `/mcps` — 查看已加载的扩展；自定义命令直接输入 `/命令名` 使用
@@ -202,6 +203,7 @@ chan -p my
 - **路径约束**：文件工具只能访问工作目录内的路径；`agent.allowOutsideWorkspace=true` 才放开。
 - **危险命令**：`rm -rf /`、磁盘格式化、fork bomb、强制推送、`curl | sh` 等会被识别；默认需要审批，`agent.allowDangerous=true` 才允许直接执行。
 - **审批模式**：`auto`（默认，仅危险命令询问）、`ask`（所有 bash 前询问）、`deny`（禁止 bash）。
+- **权限规则**：按动作与资源（路径、命令前缀、URL、MCP 工具）配置 `allow/ask/deny`，支持“始终允许”并保存；`.env` 读取默认询问。详见 [docs/PERMISSIONS.md](docs/PERMISSIONS.md)。
 - **Web 安全**：默认只监听 `127.0.0.1`；非本机监听强制要求 Token；API 支持 `Authorization: Bearer` 与 `?token=`；上传扩展名与大小受限。
 - **密钥**：支持 `env:VAR` 引用，`chan config show` 与 Web 设置页都会打码。
 
@@ -219,6 +221,8 @@ src/
   commands.js             自定义命令发现、参数与 shell 插值
   config.js               配置合并、预设、环境变量、密钥解析、打码
   sessions.js             会话持久化、图片数据回填
+  session-tools.js        会话 fork / 导出 / 上下文压缩
+  permissions.js          权限规则匹配与工具权限映射
   index.js                公共 API
   mcp/                    MCP JSON-RPC 客户端（stdio / Streamable HTTP）与管理器
   providers/
@@ -245,7 +249,7 @@ scripts/                  install.ps1 / install.sh / lint.js / serve-site.js
 ## 测试与质量
 
 ```bash
-npm test        # 72 个测试，无需网络与 API Key
+npm test        # 82 个测试，无需网络与 API Key
 npm run lint    # 语法检查 + 入口与文档完整性检查
 ```
 
@@ -257,7 +261,9 @@ npm run lint    # 语法检查 + 入口与文档完整性检查
 - Agent：工具结果回填、未知工具、非法参数、循环检测、步数上限、错误传播；
 - 会话：持久化、工作区隔离、图片 data URL 剥离与回填；
 - 扩展：MCP 本地/远程连接与工具调用、SKILL.md 发现与加载、命令参数与 shell 插值、Agent 发现与子 Agent 运行；
-- 服务端：健康检查、配置、会话 CRUD、SSE 聊天、上传校验、静态页面、Token 鉴权、审批接口、MCP 工具调用。
+- 权限：通配规则匹配、最后匹配生效、`.env` 默认询问、工具级 allow/ask/deny、记住规则；
+- 会话工具：fork、Markdown/JSON 导出、上下文压缩；
+- 服务端：健康检查、配置、会话 CRUD、SSE 聊天、上传校验、静态页面、Token 鉴权、审批接口、MCP 工具调用、fork/export/compact。
 
 ---
 
@@ -269,6 +275,7 @@ npm run lint    # 语法检查 + 入口与文档完整性检查
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | 完整配置项、环境变量、模型接入 |
 | [docs/TOOLS.md](docs/TOOLS.md) | 每个工具的输入输出与安全约束 |
 | [docs/EXTENSIONS.md](docs/EXTENSIONS.md) | MCP、Skills、自定义命令、Agent 与子 Agent |
+| [docs/PERMISSIONS.md](docs/PERMISSIONS.md) | 细粒度权限规则与“始终允许” |
 | [docs/WEB_UI.md](docs/WEB_UI.md) | 浏览器功能、上传、远程访问 |
 | [docs/API.md](docs/API.md) | HTTP/SSE 接口文档 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 模块划分、消息流、扩展点 |
@@ -284,9 +291,10 @@ npm run lint    # 语法检查 + 入口与文档完整性检查
 - [x] 会话持久化、审批、Token 鉴权
 - [x] MCP（Model Context Protocol）工具接入（local / remote）
 - [x] Skills、自定义命令、自定义 Agent 与子 Agent
+- [x] 细粒度权限规则（路径 / 命令前缀 / URL / 工具）与“始终允许”
+- [x] 会话 fork、Markdown/JSON 导出、上下文压缩
 - [ ] 发布到 npm / Homebrew / winget / Scoop
-- [ ] 会话内全文搜索与导出（Markdown / JSON）
-- [ ] 并行子 Agent 与更细粒度的审批规则（命令前缀白名单）
+- [ ] 会话全文搜索、并行子 Agent
 
 欢迎贡献，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 

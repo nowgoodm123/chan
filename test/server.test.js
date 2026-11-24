@@ -297,6 +297,71 @@ test('ask approval mode pauses for approval and resumes the agent', async (t) =>
   assert.match(transcript, /tool finished/);
 });
 
+test('sessions can be forked, exported and compacted', async (t) => {
+  const { base } = await withServer(t, { provider: fakeProvider('summary text') });
+  const created = await (
+    await fetch(`${base}/api/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  ).json();
+  const id = created.session.id;
+  await postChat(base, id, { message: 'first task' });
+
+  const forked = await fetch(`${base}/api/sessions/${id}/fork`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(forked.status, 201);
+  const forkBody = await forked.json();
+  assert.notEqual(forkBody.session.id, id);
+  assert.equal(forkBody.session.messages.length, 2);
+
+  const markdown = await fetch(`${base}/api/sessions/${id}/export?format=markdown`);
+  assert.equal(markdown.status, 200);
+  assert.match(markdown.headers.get('content-disposition') || '', /attachment/);
+  const md = await markdown.text();
+  assert.match(md, /first task/);
+  assert.match(md, /# /);
+
+  const json = await fetch(`${base}/api/sessions/${id}/export?format=json`);
+  const exported = await json.json();
+  assert.equal(exported.messages.length, 2);
+
+  const compact = await fetch(`${base}/api/sessions/${id}/compact`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(compact.status, 200);
+  const compacted = await compact.json();
+  assert.match(compacted.summary, /summary text/);
+  const reloaded = await (await fetch(`${base}/api/sessions/${id}`)).json();
+  assert.equal(reloaded.session.messages.length, 2);
+  assert.match(reloaded.session.messages[0].content, /Context compacted/);
+});
+
+test('custom commands expand before the prompt reaches the model', async (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'chan-command-chat-'));
+  fs.mkdirSync(path.join(workspace, '.chan', 'commands'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, '.chan', 'commands', 'review.md'), '---\ndescription: Review\n---\nReview $ARGUMENTS now.');
+  const provider = {
+    name: 'fake',
+    model: 'fake-1',
+    type: 'openai',
+    async *stream({ messages }) {
+      const lastUser = [...messages].reverse().find((message) => message.role === 'user');
+      yield { type: 'text-delta', text: lastUser?.content || '' };
+      yield { type: 'done', stopReason: 'stop' };
+    },
+  };
+  const server = new ChanServer({ cwd: workspace, config: structuredClone(DEFAULT_CONFIG), providerFactory: () => provider });
+  const info = await server.listen({ port: 0, host: '127.0.0.1' });
+  t.after(() => server.close());
+
+  const created = await (
+    await fetch(`${info.url}/api/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  ).json();
+  const { text } = await postChat(info.url, created.session.id, { message: '/review src/a.ts', agent: 'plan' });
+  assert.match(text, /Review src\/a\.ts now\./);
+  const reloaded = await (await fetch(`${info.url}/api/sessions/${created.session.id}`)).json();
+  assert.equal(reloaded.session.agent, 'plan');
+});
+
 test('extension endpoints expose skills, commands, agents and mcp status', async (t) => {
   const { base } = await withServer(t);
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'chan-ext-'));
@@ -360,6 +425,74 @@ test('chat can use MCP tools discovered from a local server', async (t) => {
   const { text } = await postChat(info.url, created.session.id, { message: 'use mcp' });
   assert.match(text, /echo:hello/);
   assert.match(text, /got echo:hello/);
+});
+
+test('remember approval saves a permission rule and allows the read', async (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'chan-remember-'));
+  fs.writeFileSync(path.join(workspace, '.env'), 'SECRET=1');
+  const provider = {
+    name: 'fake',
+    model: 'fake-1',
+    type: 'openai',
+    async *stream({ messages }) {
+      const toolMessages = messages.filter((message) => message.role === 'tool');
+      if (!toolMessages.length) {
+        yield { type: 'tool-call', id: 'read-env', name: 'read', arguments: JSON.stringify({ path: '.env' }) };
+        yield { type: 'done', stopReason: 'tool_calls' };
+      } else {
+        yield { type: 'text-delta', text: `content:${toolMessages[toolMessages.length - 1].content}` };
+        yield { type: 'done', stopReason: 'stop' };
+      }
+    },
+  };
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.permissions = [];
+  const server = new ChanServer({ cwd: workspace, config, providerFactory: () => provider });
+  const info = await server.listen({ port: 0, host: '127.0.0.1' });
+  t.after(() => server.close());
+
+  const created = await (
+    await fetch(`${info.url}/api/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  ).json();
+  const res = await fetch(`${info.url}/api/sessions/${created.session.id}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'read env' }),
+  });
+  assert.equal(res.status, 200);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let transcript = '';
+  let approved = false;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    transcript += chunk;
+    buffer += chunk;
+    let boundary;
+    while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      if (!block.includes('event: approval-request')) continue;
+      const dataLine = block.split('\n').find((line) => line.startsWith('data: '));
+      const request = JSON.parse(dataLine.slice(6));
+      assert.equal(request.permission.action, 'read');
+      assert.equal(request.permission.resource, '.env');
+      const approval = await fetch(`${info.url}/api/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callId: request.callId, approved: true, remember: true }),
+      });
+      const body = await approval.json();
+      assert.equal(body.remembered, true);
+      approved = true;
+    }
+  }
+  assert.equal(approved, true);
+  assert.match(transcript, /SECRET=1/);
+  assert.ok(config.permissions.some((rule) => rule.action === 'read' && rule.resource === '.env' && rule.effect === 'allow'));
 });
 
 test('approval endpoint reports unknown requests', async (t) => {

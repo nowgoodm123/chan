@@ -1,6 +1,6 @@
 export const SLASH_COMMANDS = [
   { command: '/help', args: '', description: 'show the command menu' },
-  { command: '/session', args: '<list|new|resume|delete|rename|show>', description: 'manage sessions' },
+  { command: '/session', args: '<list|new|resume|delete|fork|export|compact|rename|show>', description: 'manage sessions' },
   { command: '/sessions', args: '', description: 'list saved sessions (alias)', hidden: true },
   { command: '/resume', args: '<id>', description: 'resume a saved session (alias)', hidden: true },
   { command: '/connect', args: '[provider]', description: 'connect a provider: type, base URL, model, API key' },
@@ -26,7 +26,7 @@ export const SLASH_COMMANDS = [
   { command: '/quit', args: '', description: 'alias of /exit', hidden: true },
 ];
 
-const SESSION_SUBCOMMANDS = ['list', 'new', 'resume', 'delete', 'rename', 'show'];
+const SESSION_SUBCOMMANDS = ['list', 'new', 'resume', 'delete', 'fork', 'export', 'compact', 'rename', 'show'];
 
 function argOptions(command, { providers = [], files = [], agents = [] } = {}) {
   if (command === '/session') return SESSION_SUBCOMMANDS;

@@ -17,6 +17,7 @@ import {
 } from '../config.js';
 import { expandCommand, loadCommands } from '../commands.js';
 import { createMcpManager } from '../mcp/index.js';
+import { addPermissionRule } from '../permissions.js';
 import { createProvider } from '../providers/index.js';
 import { createRuntime, resolveProviderForSpec } from '../runtime.js';
 import { SessionStore } from '../sessions.js';
@@ -113,10 +114,18 @@ function pickProvider(config) {
   return provider;
 }
 
-function makeApprovalFor(mode) {
+function makeApprovalFor(mode, config = null) {
   if (mode === 'deny') return async () => ({ approved: false, reason: 'approval mode is deny' });
-  if (mode === 'ask') return createApprovalPrompt();
-  const prompt = createApprovalPrompt();
+  const onRemember =
+    config && typeof config === 'object'
+      ? async (request) => {
+          if (request.permission && addPermissionRule(config, request.permission)) {
+            saveConfig(config);
+          }
+        }
+      : null;
+  if (mode === 'ask') return createApprovalPrompt(null, { onRemember });
+  const prompt = createApprovalPrompt(null, { onRemember });
   return async (request) => (request.requiresConfirmation ? prompt(request) : { approved: true });
 }
 
@@ -168,7 +177,7 @@ async function commandRun({ positionals, flags, config, cwd, ui }) {
     agent: commandMeta?.agent || config.agent.defaultAgent,
   });
   session.messages.push({ role: 'user', content: prompt });
-  const uiApproval = makeApprovalFor(config.agent.approval);
+  const uiApproval = makeApprovalFor(config.agent.approval, config);
 
   const mcpManager = createMcpManager({ config, cwd, logger: (message) => ui.warn(message) });
   await mcpManager.init();

@@ -11,7 +11,8 @@
 - 会话持久化与跨入口恢复；
 - HTTP + SSE API、Token 鉴权、上传；
 - Windows / macOS / Linux 安装脚本；
-- 72 个离线测试与介绍网站。
+- 细粒度权限规则与“始终允许”、会话 fork/导出/压缩；
+- 82 个离线测试与介绍网站。
 
 ## 平台支持
 
@@ -43,7 +44,7 @@
 - [x] MCP（Model Context Protocol）客户端：接入外部工具服务器（local / remote）
 - [x] 子 Agent / 只读探查 Agent（并行执行待实现）
 - [x] 自定义命令与 Skills（.chan/commands、.chan/skills）
-- [ ] 审批规则：命令前缀白名单、按路径授权
+- [x] 审批规则：命令前缀白名单、按路径授权（`permissions`）
 - [ ] 代码索引（本地符号搜索）以降低 grep 成本
 - [ ] 环境变量与密钥的独立密钥库（OS keychain）
 

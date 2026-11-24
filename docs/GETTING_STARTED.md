@@ -98,7 +98,7 @@ chan
 
 在空提示符直接输入 `/` 会弹出命令面板，按 `Tab` 可补全命令、子命令、Provider 名和图片路径：
 
-- `/session list|new|resume <id>|delete <id>|rename <title>|show [id]` — 会话管理
+- `/session list|new|resume <id>|delete <id>|fork [index]|export [path]|compact|rename <title>|show [id]` — 会话管理
 - `/connect [provider]` — 交互式连接模型：类型、Base URL、模型、API Key，保存后立即生效
 - `/model`、`/provider`、`/approval` — 快速切换模型 / Provider / 审批模式
 - `/attach <image>`、`/detach`、`/tools`、`/web [open|stop]`、`/config`、`/help`、`/exit`

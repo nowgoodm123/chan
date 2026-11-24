@@ -1,10 +1,17 @@
 import readline from 'node:readline';
 
-export function createApprovalPrompt(rl = null) {
+export function createApprovalPrompt(rl = null, { onRemember = null } = {}) {
   return async (request) => {
-    const question = `Approve ${request.tool}${request.command ? ` \`${request.command}\`` : ''}?${request.danger ? ` (${request.danger})` : ''} [y/N] `;
-    const answer = await ask(rl, question);
-    return { approved: /^y(es)?$/i.test(String(answer || '').trim()) };
+    const target = request.command || request.resource || request.tool;
+    const suffix = request.danger ? ` (${request.danger})` : '';
+    const options = request.permission ? '[y/N/a=always]' : '[y/N]';
+    const question = `Approve ${request.tool} ${target}${suffix}? ${options} `;
+    const answer = String((await ask(rl, question)) || '').trim().toLowerCase();
+    if (request.permission && /^a(ll|ways)?$/.test(answer)) {
+      if (onRemember) await onRemember(request);
+      return { approved: true, remember: true };
+    }
+    return { approved: /^y(es)?$/.test(answer) };
   };
 }
 

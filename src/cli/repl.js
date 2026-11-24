@@ -5,8 +5,10 @@ import { pathToFileURL } from 'node:url';
 import { loadAgents } from '../agents.js';
 import { expandCommand, loadCommands } from '../commands.js';
 import { APP_HOME, CONFIG_PATH, getProviderConfig, PROVIDER_PRESETS, redactConfig, resolveSecret, saveConfig } from '../config.js';
+import { addPermissionRule, describeRule } from '../permissions.js';
 import { createProvider } from '../providers/index.js';
 import { createRuntime, resolveProviderForSpec } from '../runtime.js';
+import { compactSession, forkSession, sessionToMarkdown } from '../session-tools.js';
 import { loadSkills } from '../skills.js';
 import { startServer, openBrowser, SITE_DIR } from '../server/server.js';
 import { SessionStore } from '../sessions.js';
@@ -165,9 +167,20 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {}, 
     if (mode === 'deny') return { approved: false, reason: 'approval mode is deny' };
     if (mode === 'auto' && !request.requiresConfirmation) return { approved: true };
     ui.stop();
-    const target = request.command ? `\`${request.command}\`` : request.tool;
-    const answer = await readLine(ui.yellow(`approve ${target}${request.danger ? ` (${request.danger})` : ''}? [y/N] `));
-    return { approved: /^y(es)?$/i.test(String(answer || '').trim()) };
+    const target = request.command || request.resource || request.tool;
+    const options = request.permission ? '[y/N/a=always]' : '[y/N]';
+    const answer = String(
+      (await readLine(ui.yellow(`approve ${request.tool} ${target}${request.danger ? ` (${request.danger})` : ''}? ${options} `))) || '',
+    )
+      .trim()
+      .toLowerCase();
+    if (request.permission && /^a(ll|ways)?$/.test(answer)) {
+      const added = addPermissionRule(config, request.permission);
+      if (added) saveConfig(config);
+      ui.info(added ? `saved permission rule: ${describeRule(request.permission)}` : 'permission rule already exists');
+      return { approved: true, remember: true };
+    }
+    return { approved: /^y(es)?$/.test(answer) };
   }
 
   function newSession() {
@@ -559,7 +572,40 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {}, 
         else if (sub === 'resume') resumeSession(target);
         else if (sub === 'delete' || sub === 'rm') deleteSession(target);
         else if (sub === 'show') showSessionInfo(target);
-        else if (sub === 'rename') {
+        else if (sub === 'fork') {
+          const index = target ? Number(target) : null;
+          if (target && !Number.isInteger(index)) {
+            ui.error('usage: /session fork [message-index]');
+          } else {
+            session = forkSession(store, session, { beforeIndex: index });
+            ui.info(`forked to ${session.id} (${session.messages.length} messages)`);
+          }
+        } else if (sub === 'export') {
+          const file = target || path.join('.chan', 'exports', `${session.id}.md`);
+          const absolute = path.isAbsolute(file) ? file : path.resolve(cwd, file);
+          try {
+            fs.mkdirSync(path.dirname(absolute), { recursive: true });
+            fs.writeFileSync(absolute, sessionToMarkdown(session), 'utf8');
+            ui.info(`exported Markdown to ${absolute}`);
+          } catch (err) {
+            ui.error(`export failed: ${err.message}`);
+          }
+        } else if (sub === 'compact') {
+          const activeProvider = ensureProvider();
+          const controller = new AbortController();
+          currentAbort = controller;
+          try {
+            const summary = await compactSession({ provider: activeProvider, session, signal: controller.signal });
+            store.save(session);
+            ui.info(`compacted ${session.id} to ${session.messages.length} messages`);
+            ui.line(ui.dim(summary.length > 600 ? `${summary.slice(0, 600)}…` : summary));
+          } catch (err) {
+            if (err.name === 'AbortError') ui.warn('compaction stopped');
+            else ui.error(err.message);
+          } finally {
+            currentAbort = null;
+          }
+        } else if (sub === 'rename') {
           if (!target) {
             ui.error('usage: /session rename <new title>');
           } else {
@@ -568,7 +614,7 @@ export async function startRepl({ cwd, config, ui, resumeId = null, flags = {}, 
             ui.info(`renamed session to "${session.title}"`);
           }
         } else {
-          ui.error(`unknown session command "${sub}" — use list, new, resume <id>, delete <id>, rename <title>, show [id]`);
+          ui.error('unknown session command "' + sub + '" — use list, new, resume <id>, delete <id>, fork [index], export [path], compact, rename <title>, show [id]');
         }
         return false;
       }

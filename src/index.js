@@ -20,10 +20,19 @@ export {
   setConfigValue,
 } from './config.js';
 export { createMcpManager, HttpMcpClient, McpManager, normalizeMcpName, StdioMcpClient } from './mcp/index.js';
+export {
+  DEFAULT_PERMISSION_RULES,
+  addPermissionRule,
+  describeRule,
+  evaluatePermissions,
+  matchPermission,
+  permissionRequestForTool,
+} from './permissions.js';
 export { createAnthropicProvider } from './providers/anthropic.js';
 export { createOpenAIProvider } from './providers/openai.js';
 export { createProvider, isLocalEndpoint } from './providers/index.js';
 export { createRuntime, resolveProviderForSpec } from './runtime.js';
+export { compactSession, forkSession, sessionToJson, sessionToMarkdown } from './session-tools.js';
 export { hydrateSession, serializeSession, SessionStore } from './sessions.js';
 export { findSkill, formatSkillsForPrompt, loadSkills } from './skills.js';
 export { ChanServer, createServer, getLanAddresses, openBrowser, startServer } from './server/server.js';

@@ -20,6 +20,8 @@ Tests run on Windows, macOS and Linux. Never require real network or API keys in
 - `src/agent.js` — agent loop, event stream, tool execution, loop detection.
 - `src/runtime.js` — assembles agent profile, skills, MCP tools, subagent runner.
 - `src/agents.js`, `src/skills.js`, `src/commands.js` — extension discovery/formatting.
+- `src/permissions.js` — allow/ask/deny rules wrapped around every tool call.
+- `src/session-tools.js` — session fork, Markdown/JSON export, context compaction.
 - `src/mcp/` — MCP JSON-RPC clients (stdio / Streamable HTTP) and manager.
 - `src/providers/` — `openai.js`, `anthropic.js`, factory in `index.js`.
 - `src/tools/` — one file per tool; register in `ALL_TOOLS` (`src/tools/index.js`). Dynamic tools: `skill`, `subagent`, MCP.

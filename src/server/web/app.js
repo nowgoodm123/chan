@@ -12,6 +12,11 @@ const state = {
   abort: null,
   attachments: [],
   live: null,
+  agents: [],
+  defaultAgent: 'build',
+  commands: [],
+  slashItems: [],
+  slashIndex: 0,
 };
 
 const el = {
@@ -24,9 +29,14 @@ const el = {
   messages: document.getElementById('messages'),
   empty: document.getElementById('empty-state'),
   provider: document.getElementById('provider-select'),
+  agent: document.getElementById('agent-select'),
   model: document.getElementById('model-input'),
   approval: document.getElementById('approval-select'),
   settingsBtn: document.getElementById('settings-btn'),
+  forkBtn: document.getElementById('fork-btn'),
+  exportBtn: document.getElementById('export-btn'),
+  compactBtn: document.getElementById('compact-btn'),
+  slashMenu: document.getElementById('slash-menu'),
   input: document.getElementById('input'),
   send: document.getElementById('send'),
   stop: document.getElementById('stop'),
@@ -381,8 +391,9 @@ function updateHeader() {
   el.title.textContent = session?.title || 'chan_code';
   const provider = session?.provider || el.provider.value || state.config?.defaultProvider || '—';
   const model = session?.model || el.model.value || '—';
+  const agent = el.agent.value || session?.agent || state.defaultAgent || 'build';
   const status = state.busy ? 'working…' : 'ready';
-  el.meta.textContent = `${provider} · ${model} · ${status}`;
+  el.meta.textContent = `${agent} · ${provider} · ${model} · ${status}`;
 }
 
 function setSession(session) {
@@ -391,13 +402,17 @@ function setSession(session) {
     if (session.provider) el.provider.value = session.provider;
     if (session.model) el.model.value = session.model;
     if (session.approval) el.approval.value = session.approval;
+    if (session.agent) el.agent.value = session.agent;
     renderHistory(session);
   } else {
     clearMessages();
     showEmpty(true);
   }
+  hideSlashMenu();
   updateHeader();
   renderSessions();
+  loadAgentOptions();
+  loadSlashCommands();
 }
 
 function startNewSession() {
@@ -438,6 +453,156 @@ function applyProviderSelection(name) {
   const provider = state.providers.find((p) => p.name === name);
   if (provider?.model) el.model.value = provider.model;
   updateHeader();
+}
+
+function extensionsCwd() {
+  return state.session?.cwd || localStorage.getItem(CWD_KEY) || '';
+}
+
+async function loadAgentOptions() {
+  const cwd = extensionsCwd();
+  const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : '';
+  let data;
+  try {
+    data = await api(`/api/agents${query}`);
+  } catch {
+    data = { agents: [], defaultAgent: 'build' };
+  }
+  state.agents = data.agents || [];
+  state.defaultAgent = data.defaultAgent || 'build';
+  const current = state.session?.agent || el.agent.value || state.defaultAgent;
+  el.agent.innerHTML = '';
+  const list = state.agents.filter((agent) => !agent.hidden);
+  if (!list.length) {
+    el.agent.add(new Option('build', 'build'));
+  } else {
+    for (const agent of list) el.agent.add(new Option(`${agent.name} · ${agent.mode}`, agent.name));
+  }
+  if ([...el.agent.options].some((option) => option.value === current)) el.agent.value = current;
+  updateHeader();
+}
+
+async function loadSlashCommands() {
+  const cwd = extensionsCwd();
+  const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : '';
+  try {
+    const data = await api(`/api/commands${query}`);
+    state.commands = data.commands || [];
+  } catch {
+    state.commands = [];
+  }
+  updateSlashMenu();
+}
+
+function hideSlashMenu() {
+  state.slashItems = [];
+  if (el.slashMenu) el.slashMenu.hidden = true;
+}
+
+function renderSlashMenu() {
+  if (!state.slashItems.length) {
+    hideSlashMenu();
+    return;
+  }
+  el.slashMenu.innerHTML = '';
+  const title = document.createElement('div');
+  title.className = 'slash-title';
+  title.textContent = 'Custom commands';
+  el.slashMenu.appendChild(title);
+  state.slashItems.forEach((item, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `slash-item${index === state.slashIndex ? ' active' : ''}`;
+    const name = document.createElement('code');
+    name.textContent = `/${item.name}`;
+    const description = document.createElement('span');
+    description.textContent = item.description || '';
+    button.append(name, description);
+    button.addEventListener('mousedown', (event) => event.preventDefault());
+    button.addEventListener('click', () => applySlashCommand(item));
+    el.slashMenu.appendChild(button);
+  });
+  el.slashMenu.hidden = false;
+}
+
+function updateSlashMenu() {
+  const value = el.input.value;
+  if (!value.startsWith('/') || value.includes(' ')) {
+    hideSlashMenu();
+    return;
+  }
+  const query = value.slice(1).toLowerCase();
+  const items = state.commands.filter((command) => command.name.toLowerCase().startsWith(query)).slice(0, 8);
+  if (!items.length) {
+    hideSlashMenu();
+    return;
+  }
+  const previous = state.slashItems[state.slashIndex]?.name;
+  state.slashItems = items;
+  const keep = items.findIndex((item) => item.name === previous);
+  state.slashIndex = keep >= 0 ? keep : 0;
+  renderSlashMenu();
+}
+
+function applySlashCommand(item) {
+  el.input.value = `/${item.name} `;
+  hideSlashMenu();
+  autoResize();
+  el.input.focus();
+}
+
+async function forkCurrentSession() {
+  if (!state.session) {
+    window.alert('Nothing to fork yet.');
+    return;
+  }
+  if (state.busy) {
+    window.alert('Wait for the current response to finish first.');
+    return;
+  }
+  try {
+    const { session } = await api(`/api/sessions/${state.session.id}/fork`, { method: 'POST', body: '{}' });
+    await loadSessions();
+    setSession(session);
+  } catch (err) {
+    addNote(err.message, 'error');
+  }
+}
+
+function exportCurrentSession() {
+  if (!state.session) {
+    window.alert('Nothing to export yet.');
+    return;
+  }
+  const token = state.token ? `&token=${encodeURIComponent(state.token)}` : '';
+  window.open(`/api/sessions/${state.session.id}/export?format=markdown${token}`, '_blank');
+}
+
+async function compactCurrentSession() {
+  if (!state.session || state.busy) {
+    window.alert('Wait for the current response to finish first.');
+    return;
+  }
+  if (!window.confirm('Compact this conversation into a summary? Older messages will be replaced.')) return;
+  setBusy(true);
+  addNote('Compacting conversation context…', 'warn');
+  try {
+    const data = await api(`/api/sessions/${state.session.id}/compact`, {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: el.provider.value || undefined,
+        model: el.model.value || undefined,
+      }),
+    });
+    const result = await api(`/api/sessions/${state.session.id}`);
+    setSession(result.session);
+    addNote(`Context compacted. ${String(data.summary || '').slice(0, 400)}`, 'warn');
+    await loadSessions();
+  } catch (err) {
+    addNote(err.message, 'error');
+  } finally {
+    setBusy(false);
+  }
 }
 
 function renderProviderOptions() {
@@ -534,6 +699,8 @@ async function saveSettings() {
     if (cwd) localStorage.setItem(CWD_KEY, cwd);
     else localStorage.removeItem(CWD_KEY);
     await loadConfig();
+    await loadAgentOptions();
+    await loadSlashCommands();
     if (state.session) {
       state.session.provider = name;
       state.session.model = el.setModel.value.trim() || state.session.model;
@@ -630,6 +797,10 @@ function handleEvent(event, data) {
       state.session.title = data.title;
       state.session.provider = data.provider;
       state.session.model = data.model;
+      if (data.agent) {
+        state.session.agent = data.agent;
+        if ([...el.agent.options].some((option) => option.value === data.agent)) el.agent.value = data.agent;
+      }
     }
     updateHeader();
     return;
@@ -726,33 +897,42 @@ function renderApproval(request) {
   const box = document.createElement('div');
   box.className = 'approval';
   const title = document.createElement('div');
-  title.innerHTML = `<strong>Approval required</strong> · ${escapeHtml(request.danger || 'tool execution')}`;
+  const reason = request.danger || request.reason || 'tool execution';
+  title.innerHTML = `<strong>Approval required</strong> · ${escapeHtml(reason)}`;
   const cmd = document.createElement('code');
-  cmd.textContent = request.command || request.tool || '';
+  cmd.textContent = request.command || `${request.action || request.tool || ''} ${request.resource || ''}`.trim();
   const actions = document.createElement('div');
   actions.className = 'approval-actions';
   const approve = document.createElement('button');
   approve.className = 'btn primary small';
   approve.textContent = 'Approve';
+  const always = document.createElement('button');
+  always.className = 'btn small';
+  always.textContent = 'Always allow';
   const deny = document.createElement('button');
   deny.className = 'btn small';
   deny.textContent = 'Deny';
-  const finish = async (approved) => {
+  const finish = async (approved, remember = false) => {
     approve.disabled = true;
+    always.disabled = true;
     deny.disabled = true;
     try {
-      await api('/api/approve', {
+      const result = await api('/api/approve', {
         method: 'POST',
-        body: JSON.stringify({ callId: request.callId, approved }),
+        body: JSON.stringify({ callId: request.callId, approved, remember }),
       });
-      title.innerHTML = `<strong>${approved ? 'Approved' : 'Denied'}</strong> · ${escapeHtml(request.tool || 'tool')}`;
+      const suffix = result?.remembered && result.rule ? ` · saved ${result.rule}` : '';
+      title.innerHTML = `<strong>${approved ? 'Approved' : 'Denied'}</strong> · ${escapeHtml(request.tool || 'tool')}${escapeHtml(suffix)}`;
     } catch (err) {
       addNote(err.message, 'error');
     }
   };
   approve.addEventListener('click', () => finish(true));
+  always.addEventListener('click', () => finish(true, true));
   deny.addEventListener('click', () => finish(false));
-  actions.append(approve, deny);
+  actions.append(approve);
+  if (request.permission) actions.append(always);
+  actions.append(deny);
   box.append(title, cmd, actions);
   el.messages.appendChild(box);
   scrollDown(true);
@@ -763,6 +943,7 @@ async function ensureSession() {
   const body = {
     provider: el.provider.value || undefined,
     model: el.model.value || undefined,
+    agent: el.agent.value || undefined,
     approval: el.approval.value,
   };
   const cwd = localStorage.getItem(CWD_KEY);
@@ -797,6 +978,7 @@ async function sendMessage() {
   renderUserMessage({ content: message, images });
   el.input.value = '';
   el.input.style.height = 'auto';
+  hideSlashMenu();
   state.attachments = [];
   renderAttachments();
   setBusy(true);
@@ -817,6 +999,7 @@ async function sendMessage() {
         images: images.map((image) => ({ name: image.name, mediaType: image.mediaType, dataUrl: image.dataUrl })),
         provider: el.provider.value || undefined,
         model: el.model.value || undefined,
+        agent: el.agent.value || undefined,
         approval: el.approval.value,
       }),
       signal: controller.signal,
@@ -897,6 +1080,18 @@ function bindEvents() {
   el.menu.addEventListener('click', () => el.sidebar.classList.toggle('open'));
   el.provider.addEventListener('change', () => applyProviderSelection(el.provider.value));
   el.model.addEventListener('change', () => updateHeader());
+  el.agent.addEventListener('change', () => {
+    updateHeader();
+    if (state.session) {
+      api(`/api/sessions/${state.session.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ agent: el.agent.value }),
+      }).catch(() => {});
+    }
+  });
+  el.forkBtn.addEventListener('click', forkCurrentSession);
+  el.exportBtn.addEventListener('click', exportCurrentSession);
+  el.compactBtn.addEventListener('click', compactCurrentSession);
   el.approval.addEventListener('change', () => {
     if (state.session) {
       api(`/api/sessions/${state.session.id}`, {
@@ -935,8 +1130,31 @@ function bindEvents() {
     await addFiles(el.fileInput.files);
     el.fileInput.value = '';
   });
-  el.input.addEventListener('input', autoResize);
+  el.input.addEventListener('input', () => {
+    autoResize();
+    updateSlashMenu();
+  });
+  el.input.addEventListener('blur', () => setTimeout(hideSlashMenu, 120));
   el.input.addEventListener('keydown', (event) => {
+    if (!el.slashMenu.hidden && state.slashItems.length) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        state.slashIndex = (state.slashIndex + delta + state.slashItems.length) % state.slashItems.length;
+        renderSlashMenu();
+        return;
+      }
+      if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
+        event.preventDefault();
+        applySlashCommand(state.slashItems[state.slashIndex]);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        hideSlashMenu();
+        return;
+      }
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       sendMessage();
